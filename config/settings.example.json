@@ -1,0 +1,85 @@
+{
+  "_readme": [
+    "这是模板。用法：跑 `pwsh -File setup.ps1`(自动探测 MAA / 端游装在哪 → 生成 config\\settings.json)，或手工复制成 settings.json 再填 paths。",
+    "paths.maaDir 和 paths.arknightsExe 必填：留空的话 daily-clear.ps1 会在「环境检查」那一步停下来告诉你缺哪一项。",
+    "所有路径都是绝对路径；换电脑/换目录只改这里。",
+    "ark.defaultStage / ark.planByWeekday 支持逗号分隔的多关卡，MAA 的『剩余理智』会按列表顺序轮换着刷完全部理智。",
+    "ark.planByWeekday: 键为星期几（1=周一 ... 7=周日），值为该日要刷的关卡代号；未配置的星期回落到 defaultStage。",
+    "关卡代号已按 MAA 自带 resource/stages.json 核对：CE-5 龙门币 / LS-5 作战记录(经验) / SK-5 碳素 / CA-5 技巧概要，均为 30 理智、常驻每日可刷。",
+    "材料本轮哪些天开放由游戏服务端决定，脚本不猜；想固定刷某种材料，就把当天开放的关卡代号填进 planByWeekday。",
+    "eventRequiresAck: true = 出了新活动但你还没自己通一遍时，脚本只跑非战斗部分(公招/基建/信用/领奖)并提醒，不会自动烧体力；打完用 -Ack 登记。",
+    "shopDoneStopsEvent: true = 活动商店领空后手动打点(-ShopDone)，该活动剩余理智不再刷，回落到长草计划；标记记在 state\\ark-shop-done.json，按活动 id 分别生效，换了新活动自动不适用。要恢复刷：-ShopReset。",
+    "runtime.abortOnMaaStallWarning: true = 见到 MAA 自己的『日志无更新/停滞』告警就判失败并收尾，避免整晚挂着。",
+    "runtime.keepScreenOn: true = 跑日常期间顶住熄屏/睡眠(SetThreadExecutionState，跑完立即恢复)。端游截图要求桌面『已解锁』，锁屏时段跑会失败。",
+    "runtime.arkRequiresElevation: true = 端游要管理员权限，脚本非提权时会弹一次 UAC 以管理员身份重跑自己(-NoElevate 可禁止)。计划任务侧对应 install-task.ps1 的 RunLevel Highest。",
+    "runtime.launchArkFromHelper: true = 端游由日常脚本先 Start-Process 拉起来、等窗口出现后再启动 MAA(MAA 的配置里压根没存端游路径，让它自己开只会报『未找到窗口』)，此时 MAA 的 RuntimeSettings.StartGame 会被压成 false。",
+    "runtime.arkStartTimeoutMinutes: 启动 MAA 后端游迟迟不被拉起(权限/自动登录问题)就提前判 not-started，不会白等满 arkTimeoutMinutes。",
+    "runtime.retryOnce: true = 本轮没成功就收尾后重试一次；not-started / unknown-format 不重试(重试也看不懂)。",
+    "视觉兜底(runtime.arkVisionRescue / visionModel / visionBaseUrl / visionApiKey / visionMaxRescue / visionTimeoutSeconds)：MAA 判到卡住时，把端游窗口截图交给视觉模型，让它指出该点哪里才能关掉挡路的弹窗(新活动公告、下载提示这类它模板集里没有的东西)，再由脚本在管理员通道里点这一下、并确认画面真的变了。只在异常路径触发，正常一轮一个请求都不发；没配 key / 没提权 / 截图几乎全黑，一律说明原因后放弃，绝不硬点。key 也可放环境变量 DASHSCOPE_API_KEY(优先)，settings.json 不会被仓库收录。",
+    "visionBaseUrl 不限于百炼公共端点：任何兼容 OpenAI 的视觉接口都能用(自建网关 / 套餐网关都行)，末尾只写到 /v1 也行，脚本会自己补上 /chat/completions；模型名以那个服务实际支持的为准(runtime.visionModel，用 GET /v1/models 能列出来)。",
+    "notify.webhook: 填了就把每轮结果 POST 到这个地址(自己承担密钥泄露风险，仓库不会收录 settings.json)。",
+    "schedule.times: install-task.ps1 用它注册计划任务，两个时间点分别对应早/晚一轮清体力；机器常开、只需登录态在即可。",
+    "schedule.taskPrefix 与 1999 那份仓库默认值不同(GameDailyArk / GameDaily1999)，两个仓库装在同一台机器上也不会互相盖掉计划任务。"
+  ],
+  "paths": {
+    "maaDir": "",
+    "maaExe": "MAA.exe",
+    "maaConfig": "config\\gui.new.json",
+    "maaGuiLog": "debug\\gui.log",
+    "maaAsstLog": "debug\\asst.log",
+    "maaActivityCache": "cache\\gui\\StageActivityV2.json",
+    "arknightsExe": ""
+  },
+  "ark": {
+    "defaultStage": "CE-5,LS-5",
+    "planByWeekday": {},
+    "finishAllSanityWith": "剩余理智",
+    "alsoEnableMainFight": false,
+    "keepQueuesEnabled": ["StartUp", "Recruit", "Infrast", "Mall", "Award"],
+    "disableQueues": ["Roguelike", "Reclamation"],
+    "eventRequiresAck": true,
+    "shopDoneStopsEvent": true,
+    "windowTitlePattern": "明日方舟|Arknights",
+    "activityApiUrl": "https://api.maa.plus/MaaAssistantArknights/api/gui/StageActivityV2.json",
+    "activityCacheMaxHours": 24
+  },
+  "runtime": {
+    "blockSleep": true,
+    "keepScreenOn": true,
+    "arkRequiresElevation": true,
+    "launchArkFromHelper": true,
+    "arkWindowTimeoutSeconds": 180,
+    "arkWarmupSeconds": 25,
+    "arkStartTimeoutMinutes": 12,
+    "arkTimeoutMinutes": 70,
+    "retryOnce": true,
+    "quitAssistantAfter": true,
+    "closeArknightsAfter": true,
+    "takeOverAssistant": true,
+    "stallTimeoutMinutes": 22,
+    "abortOnMaaStallWarning": true,
+    "arkVisionRescue": true,
+    "visionModel": "qwen3.8-flash",
+    "visionBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "visionApiKey": "",
+    "visionMaxRescue": 2,
+    "visionTimeoutSeconds": 45,
+    "benignMaaErrors": [
+      "Failed to set startup",
+      "连接明日方舟 PC 端"
+    ],
+    "idleConfirmSeconds": 75,
+    "taskWaitMinutes": 200
+  },
+  "notify": {
+    "toast": true,
+    "webhook": "",
+    "writeHistory": true
+  },
+  "schedule": {
+    "taskPrefix": "GameDailyArk",
+    "times": ["08:00", "20:00"],
+    "startWhenAvailable": true,
+    "comment": "两个时间点分别对应早/晚一轮清体力；机器常开、只需登录态在即可"
+  }
+}
