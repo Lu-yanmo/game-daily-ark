@@ -14,31 +14,51 @@ function Get-MaaPaths {
     }
 }
 
+function Get-MaaAsstStuckState {
+    <# 把 asst.log 片段里那四个"当前状态"抠出来：卡在哪个子任务、重试了几次、点击行数、注入行数。
+       为什么要单独一个函数：判定要的是数字(重试到第几次才算卡住)，说话要的是句子，两者得用同一份事实。
+       注意 inject_input_event **不是**"点击通道活没活"的指标 —— 2026-09-25 早上把整份 asst.log 按动作归类数过：
+       全部 2001 次注入都来自同一个子任务 `SwipeToTheLeft`(action=Swipe，基建向左滑那一屏)，
+       而 7640 次 ClickSelf / 719 次 ClickRect 一条注入都没有 —— 点击从头到尾都走配置里的发消息方式。
+       所以这个计数只说明"这一轮有没有滑过基建"，别拿它推断点得动还是点不动。
+       纯字符串处理、不碰文件，方便单独断言。 #>
+    param([string]$Text)
+    $r = @{ Task = ''; Exec = 0; Clicks = 0; Inject = 0 }
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $r }
+    foreach ($line in ($Text -split "`r?`n")) {
+        # 卡住时整段日志都在同一个任务上循环，所以"最后一次出现的"就是当前值，不用配对
+        if ($line -match '"cur_task":"([^"]+)"') { $r.Task = $Matches[1] }
+        if ($line -match '"exec_times":(\d+)') { $r.Exec = [int]$Matches[1] }
+        if ($line -match 'Win32Controller click:\s*\(') { $r.Clicks++ }
+        if ($line -match 'Win32Controller::inject_input_event \| enter') { $r.Inject++ }
+    }
+    return $r
+}
+
 function Get-MaaAsstStuckHint {
     <#
       从 asst.log(MAA 的内核日志，比 gui.log 细几个数量级)里挑出"此刻卡在哪个子任务、重复了多少次、最后点到哪"。
       为什么要单独读它：MAA 卡住时 gui.log 可以整整 22 分钟一个字都不写，asst.log 却一直在刷 ——
       只看 gui.log 的话，能报出来的只有"日志无输出"这种看不出所以然的话。
-      2026-09-24 18:00 那轮就是这样：真凭据在 asst.log 里，StartUp@GameStart 的 exec_times 从 1 一路涨到 316，
-      每 4 秒往同一个矩形里随机点一下(629~660,664~701)、模板分数始终 0.99 → 点击全数落空，
-      事后确认是 splash 上叠了个中秋节活动窗口把 START 挡住了。
-      纯字符串处理、不碰文件，方便单独断言。
+      2026-09-24 18:00 / 09-25 06:00 两轮都是这样：真凭据在 asst.log 里，StartUp@GameStart 的 exec_times 一路涨到 311，
+      每 4 秒往同一个矩形里点一下、模板分数始终 0.99 → 点击全数落空。
+      这句话先后被写过两种"原因"，都不成立：一是"splash 上叠了个中秋窗口"(视觉兜底拍到的是登录界面、没有窗口)；
+      二是"MAA 抢不到前台退化成 PostMessage 而端游不吃"(数错了我自己：注入只来自基建左滑，点击一直是发消息，
+      有人在机器前的成功轮也一样)。所以现在只说被证据撑住的部分：反复点同一处、界面不推进，两种可能都留着。
     #>
     param([string]$Text)
     if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
-    $task = ''; $exec = 0; $click = ''
+    $st = Get-MaaAsstStuckState -Text $Text
+    $task = $st.Task; $exec = $st.Exec; $click = ''
     foreach ($line in ($Text -split "`r?`n")) {
-        # 卡住时整段日志都在同一个任务上循环，所以"最后一次出现的"就是当前值，不用配对
-        if ($line -match '"cur_task":"([^"]+)"') { $task = $Matches[1] }
-        if ($line -match '"exec_times":(\d+)') { $exec = [int]$Matches[1] }
         if ($line -match 'Win32Controller click:\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)') { $click = "$($Matches[1]),$($Matches[2])" }
     }
     if (-not $task) { return '' }
     $bits = @("MAA 内核其实还在跑")
     if ($exec -ge 3 -and $click) {
-        # 反复点同一处才是"被挡住了"的特征；只点了一两次不算，别把正常推进中的子任务说成卡住
+        # 反复点同一处才是"没被吃进去"的特征；只点了一两次不算，别把正常推进中的子任务说成卡住
         $bits += "卡在子任务 $task，已重复 $exec 次(最后点到 $click)"
-        $bits += '同一处反复点击而界面不动 → 八成是有个 MAA 不认识的窗口(活动弹窗/更新提示)挡在按钮上'
+        $bits += '同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)'
     } elseif ($exec -ge 3) {
         $bits += "卡在子任务 $task，已重复 $exec 次"
     } else {
@@ -184,15 +204,35 @@ function Invoke-MaaRun {
     if (-not (Wait-GdCondition -Test { Test-GdProcessRunning -Name $P.Name } -TimeoutSeconds 90 -PollSeconds 3 -What 'MAA 进程启动')) {
         return @{ Status = 'error'; Detail = 'MAA 未能启动(进程未出现)' }
     }
+    <# 一开跑就把"这一轮的点击环境长什么样"记进日志：输入桌面 + 端游在不在前台 + 窗口状态。
+       为什么要记 —— 无人值守那几轮的失败全是同一个样子(22 分钟无输出、点击全落空)，但日志里没有任何一句话
+       能说明当时是"锁屏/窗口不在前台"还是"有个窗口挡着"，事后只能翻 asst.log 猜。这一行当时就把它记下来。
+       这棵树上没有探测函数(1999 仓库、自检假环境)就跳过，不影响正常一轮。 #>
+    if (Get-Command Get-GdArkDesktopState -ErrorAction SilentlyContinue) {
+        try {
+            $hwnd = $null
+            if (Get-Command Get-GdArkWindow -ErrorAction SilentlyContinue) {
+                $gw = Get-GdArkWindow -S $S
+                if ($gw) { $hwnd = $gw.Handle }
+            }
+            $dstProbe = Get-GdArkDesktopState -Hwnd $hwnd
+            Write-GdLog "点击环境探测：$($dstProbe.Detail)" $(if ($dstProbe.GameOnFg) { 'INFO' } else { 'WARN' })
+        } catch { Write-GdLog "点击环境探测没做起来：$($_.Exception.Message)" -Level WARN }
+    }
 
     $lastGrowth = Get-Date
     $completed = @{}
     $errors = @()
+    $chanClicks = 0             # asst.log 里 Win32Controller click 的条数(整轮累计，只是规模参考)
+    $stuckTask = ''             # asst.log 最后一次报出来的子任务
+    $stuckExec = 0              # 它已经重试到第几次 —— 卡住时这个数会一路涨(实测 311)
+    $chanGrabAt = $null         # 判到"点了没动"之后自己抢前台的时刻，抢完再给它 60 秒
     $benignSeen = @{}
     $seen = ''
     $markers = 0                # 认出的标志行数(完成/链路/停滞/异常)：一直是 0 = 日志看不懂了 → unknown-format
     $logChars = 0               # 读到的新增日志字符数：分得清"没写日志"和"写了但不认识"
     $finished = $false          # MAA 自己宣布"任务已全部完成"
+    $drained = $false           # MAA 宣布"跑完了但有错误"= 队列已经空了，它不会再自己动(见下面的 $drained 判定)
     $stallWarn = $null
     $timeout = [int]$S.runtime.arkTimeoutMinutes * 60
     $startTimeout = [int]$S.runtime.arkStartTimeoutMinutes * 60
@@ -236,6 +276,17 @@ function Invoke-MaaRun {
                     $stallWarn = (($line -replace '^.*?<\d+>\s*', '') -replace '\s+', ' ').Trim()
                     Write-GdLog "MAA 停滞告警：$stallWarn" -Level WARN
                 }
+                elseif ($line -match '任务已完成，但出现错误') {
+                    <#
+                      MAA 把整条队列跑空了、但过程中有链路报错 —— 它不会自己再跑第二遍。
+                      这一句和「任务已全部完成」是两种收尾，早先只认后者，于是这种局要一直等到
+                      「asst.log 静默 22 分钟」才反应得过来(2026-09-25 07:53 那轮实测：6 条链路 0 完成，
+                      07:56:46 就打出这句，脚本却傻等到 08:19)。认下来，下面立刻处理。
+                    #>
+                    $markers++
+                    $drained = $true
+                    Write-GdLog 'MAA 宣布本轮已跑完但有错误(队列已空，它不会再自己动)' -Level WARN
+                }
                 elseif ($line -match '\[ERR\]|任务失败|Exception|连接失败') {
                     $markers++
                     $msg = ($line -replace '^.*?\]\s*', '') -replace '^\d+\s*', ''
@@ -269,6 +320,10 @@ function Invoke-MaaRun {
                     $aTail = Get-GdFileTail -Path $P.AsstLog -Offset $asstOffset
                     $asstOffset = $aTail.Offset
                     if ($aTail.Text) {
+                        <# 子任务重试次数才是"点了没动"的直接证据；inject 那个数只反映有没有滑基建，这里不参与判定。 #>
+                        $st = Get-MaaAsstStuckState -Text $aTail.Text
+                        $chanClicks += $st.Clicks
+                        if ($st.Task) { $stuckTask = $st.Task; $stuckExec = $st.Exec }
                         $h = Get-MaaAsstStuckHint -Text $aTail.Text
                         if ($h) { $asstHint = $h }
                     }
@@ -306,6 +361,75 @@ function Invoke-MaaRun {
                 Detail = "$([int]$S.runtime.arkStartTimeoutMinutes) 分钟内端游没被拉起、也没有任何链路完成 → 大概率是权限/自动登录/客户端路径问题(MAA 连端游需要管理员)"
                 Errors = $errors
             }
+        }
+        <#
+          同一个子任务反复点击、一条链路都没完成 → 别等 22 分钟：无人值守那两轮实测 exec_times 一路涨到 311，
+          每 4 秒点一下、界面一步没动，整轮白跑 44 分钟。这里先自己抢一次前台(只动窗口状态、不点客户区)，
+          当场把"输入桌面 / 端游在不在前台"记进日志，再给 60 秒；还在原地就早退。
+          两个闸各自的作用：`≥60 次`约等于"在同一处点了 4 分钟"，正常推进的子任务到不了这个数；
+          `链路 0 完成`保证已经在往前走的轮子绝不在这被掐死。
+          别再写"点击退化成 PostMessage"那种话 —— 那是把 inject 数错点得出的错结论(见 Get-MaaAsstStuckState)。
+        #>
+        if (($stuckExec -ge 60) -and ($completed.Count -eq 0) -and (-not $finished)) {
+            if ($null -eq $chanGrabAt) {
+                $chanGrabAt = Get-Date
+                if (Get-Command Invoke-GdArkForegroundGrab -ErrorAction SilentlyContinue) {
+                    try { $grabNote = (Invoke-GdArkForegroundGrab -S $S).Detail }
+                    catch { $grabNote = "抢前台抛异常：$($_.Exception.Message)" }
+                } else {
+                    $grabNote = '这棵树上没有抢前台的函数，只能等停滞判定'
+                }
+                Write-GdLog "端游没把点击吃进去($stuckTask 已重复 $stuckExec 次、整轮 $chanClicks 次点击)：$grabNote" -Level WARN
+            } elseif (((Get-Date) - $chanGrabAt).TotalSeconds -gt 60) {
+                return @{
+                    Status = 'stalled'
+                    Detail = "点击没被端游吃进去：$stuckTask 已重复 $stuckExec 次(整轮 $chanClicks 次点击)且一条链路都没完成，抢前台后 60 秒仍在原地。抢前台时看到的点击环境：$grabNote。$detail"
+                    Errors = $errors
+                }
+            }
+        }
+        <#
+          MAA 宣布"本轮跑完但有错误"= 队列已经空了，它不会再自己动 → 这时候等"静默 22 分钟"是纯白等。
+          2026-09-25 07:53 那轮实测：07:56:46 就打出这句、6 条链路 0 完成，脚本却一直等到 08:19 才想起来看屏幕。
+          那一轮的真相也在屏幕上：中秋活动页「锦枫映月 · 月饼烘焙小教程·第五期」压着主界面，
+          MAA 没有这个 × 的模板(StartUp@CloseAnno 连认 50 次认不出)，后面公招/基建/作战/商店/奖励全被它挡住。
+          所以：当场兜底一次；真的把挡路窗口拿掉了就**只重启 MAA、端游保持登录**再跑一遍队列
+          (端游不重开，免得重试那一轮又撞上同一张页)，拿不掉就早退、交给人看。
+        #>
+        if ($drained -and -not $allDone) {
+            if ($rescueLeft -le 0) {
+                return @{ Status = 'stalled'; Detail = "MAA 队列已跑空但只完成 $doneCount/$($expectedCount.Count) 条链路，兜底次数已用完。$detail"; Errors = $errors }
+            }
+            $rescueLeft--
+            $rc = $null
+            if (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue) {
+                try { $rc = Invoke-GdVisionRescue -S $S -Tag "drain$($rescues.Count + 1)" }
+                catch { $rc = [pscustomobject]@{ Tried = $false; Done = $false; Detail = "兜底抛异常：$($_.Exception.Message)" } }
+            } else {
+                $rc = [pscustomobject]@{ Tried = $false; Done = $false; Detail = '这棵树上没有视觉兜底函数(1999 仓库/自检假环境)' }
+            }
+            $rescues += $rc.Detail
+            Write-GdLog "视觉兜底结果：$($rc.Detail)" $(if ($rc.Done) { 'OK' } else { 'WARN' })
+            if (-not $rc.Done) {
+                return @{ Status = 'stalled'; Detail = "MAA 队列已跑空但只完成 $doneCount/$($expectedCount.Count) 条链路，屏幕上也没找到能关掉的挡路窗口。$detail"; Errors = $errors }
+            }
+            Write-GdLog '挡路窗口已关掉 → 只重启 MAA 再跑一遍队列(端游保持登录，不重开)' -Level STEP
+            Get-Process -Name $P.Name -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Seconds 4
+            try { Start-Process -FilePath $P.Exe -WorkingDirectory $P.Dir | Out-Null }
+            catch { return @{ Status = 'stalled'; Detail = "兜底成功了但 MAA 重启没起来：$($_.Exception.Message)。$detail"; Errors = $errors } }
+            if (-not (Wait-GdCondition -Test { Test-GdProcessRunning -Name $P.Name } -TimeoutSeconds 90 -PollSeconds 3 -What 'MAA 重新起动')) {
+                return @{ Status = 'error'; Detail = "兜底成功了但 MAA 重新起来后没等到进程。$detail"; Errors = $errors }
+            }
+            $offset = 0
+            if (Test-Path -LiteralPath $P.GuiLog) { $offset = (Get-Item -LiteralPath $P.GuiLog).Length }
+            $asstOffset = 0
+            if ($P.AsstLog -and (Test-Path -LiteralPath $P.AsstLog)) { $asstOffset = (Get-Item -LiteralPath $P.AsstLog).Length }
+            $drained = $false
+            $stuckTask = ''
+            $stuckExec = 0
+            $lastGrowth = Get-Date
+            continue
         }
         if ($stallWarn -and $S.runtime.abortOnMaaStallWarning) {
             return @{ Status = 'stalled'; Detail = "MAA 自身停滞告警(已触发)。$detail"; Errors = @($stallWarn) + $errors }

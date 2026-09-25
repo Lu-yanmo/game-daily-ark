@@ -40,6 +40,7 @@ public static class GdWin
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdcBlt, uint nFlags);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int nCmdShow);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
@@ -48,8 +49,28 @@ public static class GdWin
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out GdPoint p);
     [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, IntPtr dwExtraInfo);
     [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, IntPtr dwExtraInfo);
+    [DllImport("user32.dll", SetLastError = true)] public static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesktopAccess);
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool GetUserObjectInformationW(IntPtr hObj, int nIndex, System.Text.StringBuilder pvInfo, uint nLength, out uint lpnLengthNeeded);
+    [DllImport("user32.dll")] public static extern bool CloseDesktop(IntPtr hDesktop);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint lpdwProcessId);
 
     public static GdRect WindowRect(IntPtr h)  { GdRect r; GetWindowRect(h, out r);  return r; }
+
+    // 下面三个都是"看一眼现场"的只读调用，给点击环境探测用：不动窗口、不点客户区、不动鼠标。
+    public static bool Visible(IntPtr h) { return IsWindowVisible(h); }
+    public static string CursorText()
+    {
+        GdPoint p;
+        if (!GetCursorPos(out p)) { return ""; }
+        return p.X + "," + p.Y;
+    }
+    public static string WindowRectText(IntPtr h)
+    {
+        GdRect r;
+        if (!GetWindowRect(h, out r)) { return ""; }
+        return r.Left + "," + r.Top + " " + (r.Right - r.Left) + "x" + (r.Bottom - r.Top);
+    }
 
     // SW_RESTORE：把最小化的窗口放回来。掉线/MAA 收尾都会把端游最小化，那时
     // GetWindowRect 给的是屏幕外那个占位矩形(-32000,-32000，168x29)，拍出来必然是空东西。
@@ -92,6 +113,27 @@ public static class GdWin
 
     public static GdPoint CursorPos() { GdPoint p; GetCursorPos(out p); return p; }
 
+    // 当前"接收鼠标键盘的那个桌面"叫什么：解锁时是 Default，锁屏/切到登录界面时是 Winlogon。
+    // 为什么读它：这是"真实点击到底进不进得来"最直接的判据，而且不需要管理员。
+    // OpenInputDesktop 只要 DESKTOP_READOBJECTS(0x0002)，UOI_NAME 是 2。拿不到名字返回空串(调用方按"不知道"处理)。
+    public static string InputDesktopName()
+    {
+        IntPtr h = OpenInputDesktop(0x0002, false, 0x0002);
+        if (h == IntPtr.Zero) { return ""; }
+        try
+        {
+            System.Text.StringBuilder sb = new System.Text.StringBuilder(256);
+            uint need = 0;
+            if (!GetUserObjectInformationW(h, 2, sb, 512, out need)) { return ""; }
+            return sb.ToString();
+        }
+        finally { CloseDesktop(h); }
+    }
+
+    public static IntPtr ForegroundWindow() { return GetForegroundWindow(); }
+
+    public static uint WindowPid(IntPtr h) { uint pid; GetWindowThreadProcessId(h, out pid); return pid; }
+
     public static bool TryForeground(IntPtr h)
     {
         // 后台进程抢前台会被系统拒绝；先"按下 ALT"再抢是公认那招。抢不到就返回 false，
@@ -107,7 +149,10 @@ public static class GdWin
 
     public static bool RealClick(int screenX, int screenY)
     {
-        // MAA 在这个端游上走的就是这条：客户端自己渲染鼠标、只认真实输入(见 asst.log 的 inject_input_event)
+        // 真实鼠标：光标移过去再按下/抬起，我们自己的兜底点击走这条。
+        // 注意别再把它说成"MAA 在这个端游上也是这么点的"：2026-09-25 把整份 asst.log 按动作归类数过，
+        // inject_input_event 全部来自基建左滑(SwipeToTheLeft)，7600 多次点击一条注入都没有 —— MAA 的点击
+        // 一直是配置里的发消息方式，而那种点击在有人在机器前时是点得动这个端游的。
         if (!SetCursorPos(screenX, screenY)) { return false; } // 目标点在屏幕外/被裁掉了 → 别点
         System.Threading.Thread.Sleep(120);
         mouse_event(0x0002, 0, 0, 0, IntPtr.Zero);             // MOUSEEVENTF_LEFTDOWN
@@ -132,6 +177,76 @@ function Get-GdArkWindow {
         return [pscustomobject]@{ Handle = $p.MainWindowHandle; ProcId = $p.Id; Title = [string]$p.MainWindowTitle }
     }
     return $null
+}
+
+function Get-GdArkDesktopState {
+    <# 一句话回答"这一轮的点击环境长什么样"：输入桌面叫什么 + 端游窗口在不在前台 + 谁占着前台 + 窗口本身的状态。
+       为什么要记它：无人值守那几轮(06:00)失败得一模一样 —— MAA 每 4 秒往 splash 的 START 点一下、点了 311 下、
+       模板分始终 0.99、界面一步不动，而日志里没有当时"鼠标键盘到底进不进得来"的任何记录，事后只能猜。
+       被否掉的猜测有两个：一是"有个弹窗挡着"(视觉兜底当场拍到的是登录界面、没有窗口)；
+       二是"MAA 抢不到前台退化成 PostMessage 而端游不吃"(inject_input_event 其实全部来自基建左滑，
+       点击在成功轮里也一直是发消息 —— 见 lib\maa.ps1 的 Get-MaaAsstStuckState)。
+       剩下能分辨的就只有现场状态，所以把它一次记全：桌面名 / 前台归属 / 最小化 / 可见 / 窗口矩形 / 光标位置。
+       纯读，不动任何窗口，也不联网。 #>
+    param($Hwnd)
+    Add-GdRescueTypeDef
+    $desk = [string]([GdWin]::InputDesktopName())
+    $fg = [GdWin]::ForegroundWindow()
+    $onFg = ($Hwnd -and ($fg -ne [IntPtr]::Zero) -and ($fg -eq [IntPtr]$Hwnd))
+    $fgName = ''
+    try {
+        $fgPid = [uint32][GdWin]::WindowPid($fg)
+        if ($fgPid -gt 0) { $fgName = [string]((Get-Process -Id $fgPid -ErrorAction SilentlyContinue).ProcessName) }
+    } catch { $fgName = '' }
+    # 桌面名字读不到时按"不知道"处理，别把它说成"锁屏了"——OpenInputDesktop 在个别环境会被安全策略挡
+    $locked = if ($desk) { ($desk -ne 'Default') } else { $null }
+    $bits = @()
+    if (-not $desk) { $bits += '输入桌面=读不到(无法判断是否锁屏)' }
+    elseif ($locked) { $bits += "输入桌面=$desk(会话不在正常桌面，鼠标键盘进不来)" }
+    else { $bits += '输入桌面=Default(未锁屏)' }
+
+    if (-not $Hwnd) {
+        $bits += '端游窗口没找到'
+    } else {
+        if ($onFg) { $bits += '端游在前台=是' }
+        else {
+            $who = if ($fgName) { $fgName } else { '未知窗口' }
+            $bits += "端游在前台=否(前台是 $who)"
+        }
+        # 窗口自己这一侧的状态：锁屏时这几项往往还是"可见 + 正常矩形"，所以它是用来**排除**"窗口没了/最小化了"的
+        $st = @()
+        if ([GdWin]::IsIconic([IntPtr]$Hwnd)) { $st += '最小化' }
+        if (-not [GdWin]::Visible([IntPtr]$Hwnd)) { $st += '不可见' }
+        $rc = [string]([GdWin]::WindowRectText([IntPtr]$Hwnd))
+        if ($rc) { $st += $rc }
+        if ($st.Count) { $bits += "端游窗口状态=" + ($st -join '/') }
+    }
+    $cur = [string]([GdWin]::CursorText())
+    if ($cur) { $bits += "光标在 $cur" }
+
+    return [pscustomobject]@{
+        Desktop    = $desk
+        Locked     = $locked
+        GameOnFg   = [bool]$onFg
+        FgProcess  = $fgName
+        Cursor     = $cur
+        Detail     = $bits -join '；'
+    }
+}
+
+function Invoke-GdArkForegroundGrab {
+    <# 把端游窗口抢回前台(ALT hack)，只动窗口状态、不点客户区，所以不会误点游戏里的按钮。
+       抢不到就照实返回 false —— 调用方要么改走别的路，要么明确说"这一轮点不动"，别硬点。
+       成功与否都把现场状态带回 Detail：这一轮之后要不要早退，靠的就是这几个字。 #>
+    param([Parameter(Mandatory)]$S)
+    Add-GdRescueTypeDef
+    $w = Get-GdArkWindow -S $S
+    if (-not $w) { return @{ Ok = $false; Detail = '端游窗口没找到，抢前台无从谈起' } }
+    $ok = [GdWin]::TryForeground($w.Handle)
+    $st = Get-GdArkDesktopState -Hwnd $w.Handle
+    if ($ok) { $detail = "已把端游窗口抢到前台($($w.Title)) —— $($st.Detail)" }
+    else { $detail = "抢前台没成功 —— $($st.Detail)" }
+    return @{ Ok = [bool]$ok; Handle = $w.Handle; Detail = $detail }
 }
 
 function Save-GdWindowShot {
@@ -370,11 +485,13 @@ function Test-GdShotChanged {
 
 function Send-GdArkClick {
     <# 往端游客户区某个点发一次左键，返回 @{Mode;Sent}。
-       为什么不再只靠 PostMessage：2026-09-24 实测过 —— 消息确实发出去了、坐标也正好压在
-       "是否消耗1次联络机会"那个 × 上(模型给的点位偏差只有 2 像素)，弹窗却纹丝不动；
-       而 MAA 在这个端游上走的是真实鼠标(asst.log 里的 inject_input_event，gui.log 那句
-       "PC 端鼠标为独立渲染"也是这个意思)。所以默认抢前台 + 真实点击；
-       抢不到前台才退回 PostMessage —— 宁可点不动，也不能把真实点击漏进用户正在用的窗口。 #>
+       为什么不只靠 PostMessage：2026-09-24 实测过 —— 裸 PostMessage(客户区坐标)消息确实发出去了、
+       坐标也正好压在"是否消耗1次联络机会"那个 × 上(模型给的点位偏差只有 2 像素)，弹窗却纹丝不动。
+       默认走"抢前台 + 真实点击"是因为它是这台机器上被反复验证有效的那条路；
+       抢不到前台才退回 PostMessage —— 宁可点不动，也不能把真实点击漏进用户正在用的窗口。
+       （别把这条当成"MAA 也这么点"：MAA 配置里鼠标是 PostMessageWithWindowPos、键盘是 SendMessage，
+        它同样在发消息、而且有人在机器前时点得动；但它那个"带窗口位置"的变体和这里裸发客户区坐标是不是一回事，
+        还没验过 —— 所以本函数继续把真实鼠标当主路径。） #>
     param(
         [Parameter(Mandatory)][IntPtr]$Hwnd,
         [Parameter(Mandatory)][int]$ClientX,

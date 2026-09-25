@@ -205,8 +205,8 @@ $justOne = Get-MaaAsstStuckHint -Text (@'
 SubTaskStart {"details":{"exec_times":1,"task":"RecruitBegin"}}
 Win32Controller click: (400, 300)
 '@)
-Check '刚开始的子任务不会被说成"反复点击被挡住"' (
-    $justOne -match 'RecruitBegin' -and $justOne -notmatch '挡住') $justOne
+Check '刚开始的子任务不会被说成"反复点击而界面不动"' (
+    $justOne -match 'RecruitBegin' -and $justOne -notmatch '反复点击') $justOne
 Check '停滞结论会把这条线索带上(不是只报"日志无输出")' (
     ($maaLib -match 'if \(\$asstHint\) \{ \$detail \+= '))
 # 老配置没这个键也要能跑：路径有默认值，且判定不依赖它
@@ -312,6 +312,94 @@ if (Get-Command Get-GdVisionVerdictFromText -ErrorAction SilentlyContinue) {
 } else {
     Check 'lib\vision-rescue.ps1 存在(方舟仓库少了它兜底就不生效)' $false '没找到 Get-GdVisionVerdictFromText'
 }
+
+Write-Host "`n[t14] 点了没动怎么说、怎么早退(2026-09-25 一天里两次改口的教训都在这里)"
+# 06:00 那轮的真凭据：MAA 每 4 秒往 splash 的 START 点一下、点到 exec_times=311，模板分始终 0.99，画面一动不动。
+# 早上第一版把原因写成"MAA 抢不到前台退化成 PostMessage，而端游不吃"，依据是"成功轮每小时 174 条
+# inject_input_event、失败轮一条都没有"。那个依据是数错日志：把整份 asst.log 按动作归类之后，
+# 全部 2001 次注入都来自同一个子任务 SwipeToTheLeft(基建向左滑)，而 7640 次 ClickSelf / 719 次 ClickRect
+# 一条注入都没有 —— 点击在成功轮里也一直是配置里那个发消息方式。所以：注入只能说明"滑过基建没有"，
+# 绝不能拿来当"点击通道活没活"的判据；早退改按"同一个子任务重试到第几次"判。
+$asstDead = @'
+{"cur_task":"StartUp@GameStart","details":{"cur_retry":0,"retry_times":50}}
+SubTaskStart {"details":{"exec_times":269,"task":"GameStart"}}
+Win32Controller click: (643, 666)
+Win32Controller click: (647, 670)
+Win32Controller click: (638, 663)
+'@
+$stDead = Get-MaaAsstStuckState -Text $asstDead
+Check '状态里四个数都数得到(任务/重试到第几/点击行/注入行)' (
+    $stDead.Task -eq 'StartUp@GameStart' -and $stDead.Exec -eq 269 -and $stDead.Clicks -eq 3 -and $stDead.Inject -eq 0) $(
+    "$($stDead.Task) exec=$($stDead.Exec) clicks=$($stDead.Clicks) inject=$($stDead.Inject)")
+$asstSwipe = @'
+{"cur_task":"InfrastTimePhase","details":{"cur_retry":0,"retry_times":5}}
+SubTaskStart {"details":{"exec_times":1,"action":"Swipe","task":"SwipeToTheLeft"}}
+asst::Win32Controller::inject_input_event | enter
+asst::Win32Controller::inject_input_event | leave, 14 ms
+asst::Win32Controller::inject_input_event | enter
+'@
+$stSwipe = Get-MaaAsstStuckState -Text $asstSwipe
+Check '注入行只在滑动类子任务里出现，数得到就不等于"点击通道活着"' (
+    $stSwipe.Task -eq 'InfrastTimePhase' -and $stSwipe.Inject -eq 2 -and $stSwipe.Clicks -eq 0) $(
+    "task=$($stSwipe.Task) inject=$($stSwipe.Inject) clicks=$($stSwipe.Clicks)")
+$hintDead = Get-MaaAsstStuckHint -Text $asstDead
+Check '点了没动时两种可能都留着，不再把某个原因写成定论' (
+    $hintDead -match '窗口挡' -and $hintDead -match '前台|会话') $hintDead
+Check '结论里不出现"通道退化/不吃 PostMessage"那句(它已被证伪)' (
+    $hintDead -notmatch '通道退化' -and $hintDead -notmatch '不吃 PostMessage' -and $hintDead -notmatch '八成是') $hintDead
+Check '任务名/重试次数/最后点击位置三个字段照常带上' (
+    $hintDead -match 'StartUp@GameStart' -and $hintDead -match '269' -and $hintDead -match '638,663')
+Check '空片段不给状态、也不给结论' (
+    (-not (Get-MaaAsstStuckState -Text '').Task) -and ((Get-MaaAsstStuckHint -Text '') -eq ''))
+# 探测函数：纯读，不动窗口、不点东西。锁屏与否按"输入桌面叫什么"判，读不到就说读不到(别把未知说成锁屏)。
+if (Get-Command Get-GdArkDesktopState -ErrorAction SilentlyContinue) {
+    $st = Get-GdArkDesktopState -Hwnd $null
+    Check '探测会报出输入桌面(未锁屏=Default)' ($st.Detail -match '输入桌面=') $st.Detail
+    Check '桌面名读不到时 Locked 给"不知道"而不是"锁屏了"' (
+        ($null -eq $st.Locked) -or ($st.Locked -eq ($st.Desktop -ne 'Default'))) "Desktop=[$($st.Desktop)] Locked=$($st.Locked)"
+    Check '没给窗口句柄时明说"端游窗口没找到"' ($st.Detail -match '端游窗口没找到')
+    Check '探测顺手记下光标位置(判"这一轮鼠标进不进得来"的现场量)' ($st.Detail -match '光标在 ') $st.Detail
+    $fnGrab = (Get-Command Invoke-GdArkForegroundGrab).Definition
+    $typeDef = (Get-Command Add-GdRescueTypeDef).Definition
+    Check '桌面名走 OpenInputDesktop + UOI_NAME，用完关掉句柄' (
+        $typeDef -match 'OpenInputDesktop' -and $typeDef -match 'GetUserObjectInformationW' -and $typeDef -match 'CloseDesktop')
+    Check '探测还能说清"谁占着前台"，并且读窗口自身状态(最小化/可见/矩形)' (
+        $typeDef -match 'GetWindowThreadProcessId' -and $typeDef -match 'IsWindowVisible' -and
+        $typeDef -match 'WindowRectText')
+    Check '抢前台只动窗口状态，绝不往客户区点一下，并把现场带回 Detail' (
+        $fnGrab -match 'TryForeground' -and $fnGrab -notmatch 'RealClick' -and $fnGrab -notmatch 'ClickOnce' -and
+        $fnGrab -match 'st\.Detail')
+    Check 'MAA 那一路的早退改按"同一子任务重试次数"判，且那句错话已经从代码里删掉' (
+        $maaLib -match '\$stuckExec -ge 60' -and $maaLib -match 'Invoke-GdArkForegroundGrab' -and
+        $maaLib -notmatch '点击通道已退化' -and $maaLib -match 'Get-Command Get-GdArkDesktopState')
+} else {
+    Check 'lib\vision-rescue.ps1 存在(方舟仓库少了它探测就不生效)' $false '没找到 Get-GdArkDesktopState'
+}
+
+Write-Host "`n[t15] MAA 自己把队列跑空了，别再傻等 22 分钟(2026-09-25 07:53 那轮现场暴露的)"
+# 那一轮 asst.log 里 5 次点击全部落地(START 一点就过、还关掉了两张弹窗)，随后
+# StartUp@CloseAnno 连认 50 次认不出「锦枫映月」的 ×，公招/基建/作战/商店/奖励 6 条链路 0 完成，
+# 07:56:46 gui.log 打出「任务已完成，但出现错误！」= MAA 的队列已经空了、它不会再自己动。
+# 老代码只认「任务已全部完成」，于是这一种收尾一路等到「asst.log 静默 22 分钟」才反应，
+# 而那时候就算把挡路窗口关掉也没人接着跑 —— 白等 22 分钟。
+Check '认下「跑完但有错误」这句收尾，并置 $drained' (
+    $maaLib -match '任务已完成，但出现错误' -and $maaLib -match '\$drained = \$true')
+Check '队列跑空且链路没跑齐 → 当场兜底，不等静默判定' (
+    $maaLib -match '\$drained -and -not \$allDone')
+# 把这一段单独切出来判：只准重启 MAA，不准顺手关端游/重开客户端(那是外层重试干的事)
+$iDrain = $maaLib.IndexOf('if ($drained -and -not $allDone)')
+$iQuiet = $maaLib.IndexOf('if ($quiet -gt $stall)')
+$blockDrain = if ($iDrain -gt 0 -and $iQuiet -gt $iDrain) { $maaLib.Substring($iDrain, $iQuiet - $iDrain) } else { '' }
+Check '这段判定排在"静默 22 分钟"之前(顺序错了就等于没改)' (
+    $iDrain -gt 0 -and $iQuiet -gt $iDrain) "drain@$iDrain quiet@$iQuiet"
+Check '兜底拿掉了挡路窗口 → 只重启 MAA、端游保持登录(不关客户端，免得重试那轮又弹同一张页)' (
+    $blockDrain -match 'Stop-Process -Force' -and $blockDrain -match 'Start-Process -FilePath \$P\.Exe' -and
+    $blockDrain -notmatch 'Stop-MaaAndGame' -and $blockDrain -notmatch 'Start-GdArkClient')
+Check '重启后把读取偏移/停滞计时/重试计数都归零，并清掉 $drained(否则会立刻又早退一次)' (
+    $blockDrain -match '\$drained = \$false' -and $blockDrain -match '\$lastGrowth = Get-Date' -and
+    $blockDrain -match '\$stuckExec = 0' -and $blockDrain -match 'continue')
+Check '拿不掉就早退成 stalled(交给外层那一次重试)，不再耗着' (
+    $blockDrain -match "Status = 'stalled'" -and $blockDrain -match '屏幕上也没找到能关掉的挡路窗口')
 
 $res = Show-GdTestResult -Tag 'ark'
 if ($NoExit) { return $res }
