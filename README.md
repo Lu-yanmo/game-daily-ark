@@ -27,7 +27,7 @@
 都在界面里点，不需要记命令。（命令行还在，但位置是「兜底与自动化」，见 [1.2](#12-兜底与自动化命令行)。）
 
 双击 `panel.cmd`（或不带参数打开打包好的 exe）会先用 **Windows 自带的 .NET 编译器**把
-`tools\panel-cs\Panel.cs` 现编成 `tools\panel-cs\panel-cs.exe`（几秒钟，不用装任何东西）再打开它。
+`tools\panel-cs\` 里那几份 `.cs`（同一个 `partial class` 按职责拆的 11 份，`Panel.cs` 是入口那份）现编成 `tools\panel-cs\panel-cs.exe`（几秒钟，不用装任何东西）再打开它。
 这是一份**黑白双主题**的 C# 面板，右上角可以切深/浅。极精简系统上编不出来才回落到 PowerShell 面板
 （`tools\panel.ps1`，功能一致，是兜底版）。
 
@@ -282,7 +282,7 @@ pwsh -File install-task.ps1 -Uninstall
   lib\maa.ps1          MAA 队列改写 + 启动 + gui.log 判定
   lib\vision-rescue.ps1 卡住时的视觉兜底（截图→模型→点一下关闭；见第 2.1 节，不想要就关）
   tools\panel.ps1      面板本体（-SelfTest 不显示窗口，给自动化验证用；-DumpSummary 出机器协议行）
-  tools\panel-cs\      C# 主控台本体（Panel.cs + build.ps1 用系统自带 csc 现编；只转达 panel.ps1 的结论）
+  tools\panel-cs\      C# 主控台本体（Panel.cs 是入口，其余 Panel.*.cs 是同一个 partial class 的分工；build.ps1 按目录扫 *.cs 用系统自带 csc 现编；只转达 panel.ps1 的结论）
   tools\               自检 / 探测脚本
   logs\ state\ backups\  运行时生成（不入仓）
 ```
