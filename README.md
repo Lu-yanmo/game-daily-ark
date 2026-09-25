@@ -115,7 +115,8 @@ MAA 认界面靠模板匹配，**它的模板集里没有的东西它就看不�
   坐标超出客户区或落在标题栏一律拒掉；抢不到前台时就退回发消息（宁可点不动，也不会把真实点击打进你正在用的窗口）。
 - **要额外配一样东西**：一个视觉模型的 API key（阿里云百炼 / DashScope）。填 `runtime.visionApiKey`
   或设环境变量 `DASHSCOPE_API_KEY`（环境变量优先，`settings.json` 不入版本库）。**没有 key 就不兜底**，
-  只按原来的方式说明原因，不会报错卡住；不想用就把 `runtime.arkVisionRescue` 改 `false`。
+  只按原来的方式说明原因，不会报错卡住；不想用就在图形面板的「实验功能」卡点「关掉它」
+  （等价于把 `runtime.arkVisionRescue` 改 `false`，写回前会把旧配置备份到 `backups\`；命令行改法照旧有效）。
 - **地址可以换**：`runtime.visionBaseUrl` 不限于百炼公共端点，任何兼容 OpenAI 的 chat/completions 接口、且**能接受图片输入**的
   服务都行（自建网关、套餐网关都可以）。末尾只写到 `/v1` 也没关系，脚本会自己补上 `/chat/completions`。
   模型名以那个服务实际支持的为准（`runtime.visionModel`，一般 `GET <base>/models` 能列出来）——写了它不支持的名字会直接
