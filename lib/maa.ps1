@@ -390,46 +390,30 @@ function Invoke-MaaRun {
         }
         <#
           MAA 宣布"本轮跑完但有错误"= 队列已经空了，它不会再自己动 → 这时候等"静默 22 分钟"是纯白等。
-          2026-09-25 07:53 那轮实测：07:56:46 就打出这句、6 条链路 0 完成，脚本却一直等到 08:19 才想起来看屏幕。
+          2026-09-25 07:53 那轮实测：07:56:46 就打出这句、6 条链路 0 完成，脚本却一直等到 08:19 才想起来看屏幕；
+          而 08:18 那次兜底真的把挡路窗口关掉之后，老代码只是"清零计时、继续等"，于是又白等到 08:41 才早退。
           那一轮的真相也在屏幕上：中秋活动页「锦枫映月 · 月饼烘焙小教程·第五期」压着主界面，
           MAA 没有这个 × 的模板(StartUp@CloseAnno 连认 50 次认不出)，后面公招/基建/作战/商店/奖励全被它挡住。
-          所以：当场兜底一次；真的把挡路窗口拿掉了就**只重启 MAA、端游保持登录**再跑一遍队列
-          (端游不重开，免得重试那一轮又撞上同一张页)，拿不掉就早退、交给人看。
+          所以这里只做两件被证据撑住的事：**当场兜底一次** + **立刻早退**。
+          外层(ark-daily)本来就有一次重试，那次重试会关端游重开 + 重起 MAA —— 今天实测走的就是这条路：
+          重开端游之后那张页并没有再弹，重试那一轮 6/6 链路、12 分钟跑完。
+          (这里曾写过"只重启 MAA、端游保持登录，免得重试那轮又撞上同一张页"：理由是猜的、那条路也没实测过，已删。
+           真碰上"每次登录都弹一次"的活动页，再带着证据把原地重启加回来。)
         #>
         if ($drained -and -not $allDone) {
-            if ($rescueLeft -le 0) {
-                return @{ Status = 'stalled'; Detail = "MAA 队列已跑空但只完成 $doneCount/$($expectedCount.Count) 条链路，兜底次数已用完。$detail"; Errors = $errors }
-            }
-            $rescueLeft--
-            $rc = $null
-            if (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue) {
+            if ($rescueLeft -gt 0 -and (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue)) {
+                $rescueLeft--
+                $rc = $null
                 try { $rc = Invoke-GdVisionRescue -S $S -Tag "drain$($rescues.Count + 1)" }
                 catch { $rc = [pscustomobject]@{ Tried = $false; Done = $false; Detail = "兜底抛异常：$($_.Exception.Message)" } }
-            } else {
-                $rc = [pscustomobject]@{ Tried = $false; Done = $false; Detail = '这棵树上没有视觉兜底函数(1999 仓库/自检假环境)' }
+                $rescues += $rc.Detail
+                Write-GdLog "视觉兜底结果：$($rc.Detail)" $(if ($rc.Done) { 'OK' } else { 'WARN' })
             }
-            $rescues += $rc.Detail
-            Write-GdLog "视觉兜底结果：$($rc.Detail)" $(if ($rc.Done) { 'OK' } else { 'WARN' })
-            if (-not $rc.Done) {
-                return @{ Status = 'stalled'; Detail = "MAA 队列已跑空但只完成 $doneCount/$($expectedCount.Count) 条链路，屏幕上也没找到能关掉的挡路窗口。$detail"; Errors = $errors }
+            return @{
+                Status = 'stalled'
+                Detail = "MAA 队列已跑空但只完成 $doneCount/$($expectedCount.Count) 条链路，它不会再自己动 → 不等静默判定，当场兜底过一次就直接早退(外层会重试一次)。$detail"
+                Errors = $errors
             }
-            Write-GdLog '挡路窗口已关掉 → 只重启 MAA 再跑一遍队列(端游保持登录，不重开)' -Level STEP
-            Get-Process -Name $P.Name -ErrorAction SilentlyContinue | Stop-Process -Force
-            Start-Sleep -Seconds 4
-            try { Start-Process -FilePath $P.Exe -WorkingDirectory $P.Dir | Out-Null }
-            catch { return @{ Status = 'stalled'; Detail = "兜底成功了但 MAA 重启没起来：$($_.Exception.Message)。$detail"; Errors = $errors } }
-            if (-not (Wait-GdCondition -Test { Test-GdProcessRunning -Name $P.Name } -TimeoutSeconds 90 -PollSeconds 3 -What 'MAA 重新起动')) {
-                return @{ Status = 'error'; Detail = "兜底成功了但 MAA 重新起来后没等到进程。$detail"; Errors = $errors }
-            }
-            $offset = 0
-            if (Test-Path -LiteralPath $P.GuiLog) { $offset = (Get-Item -LiteralPath $P.GuiLog).Length }
-            $asstOffset = 0
-            if ($P.AsstLog -and (Test-Path -LiteralPath $P.AsstLog)) { $asstOffset = (Get-Item -LiteralPath $P.AsstLog).Length }
-            $drained = $false
-            $stuckTask = ''
-            $stuckExec = 0
-            $lastGrowth = Get-Date
-            continue
         }
         if ($stallWarn -and $S.runtime.abortOnMaaStallWarning) {
             return @{ Status = 'stalled'; Detail = "MAA 自身停滞告警(已触发)。$detail"; Errors = @($stallWarn) + $errors }

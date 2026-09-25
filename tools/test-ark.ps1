@@ -386,20 +386,20 @@ Check '认下「跑完但有错误」这句收尾，并置 $drained' (
     $maaLib -match '任务已完成，但出现错误' -and $maaLib -match '\$drained = \$true')
 Check '队列跑空且链路没跑齐 → 当场兜底，不等静默判定' (
     $maaLib -match '\$drained -and -not \$allDone')
-# 把这一段单独切出来判：只准重启 MAA，不准顺手关端游/重开客户端(那是外层重试干的事)
+# 把这一段单独切出来判：这一段只准"兜底一次 + 早退"，重启端游/重起 MAA 是外层重试干的事
 $iDrain = $maaLib.IndexOf('if ($drained -and -not $allDone)')
 $iQuiet = $maaLib.IndexOf('if ($quiet -gt $stall)')
 $blockDrain = if ($iDrain -gt 0 -and $iQuiet -gt $iDrain) { $maaLib.Substring($iDrain, $iQuiet - $iDrain) } else { '' }
 Check '这段判定排在"静默 22 分钟"之前(顺序错了就等于没改)' (
     $iDrain -gt 0 -and $iQuiet -gt $iDrain) "drain@$iDrain quiet@$iQuiet"
-Check '兜底拿掉了挡路窗口 → 只重启 MAA、端游保持登录(不关客户端，免得重试那轮又弹同一张页)' (
-    $blockDrain -match 'Stop-Process -Force' -and $blockDrain -match 'Start-Process -FilePath \$P\.Exe' -and
+Check '跑空后先当场兜底一次(有视觉兜底函数才兜，$rescueLeft 限次数)' (
+    $blockDrain -match 'Invoke-GdVisionRescue' -and $blockDrain -match '\$rescueLeft--')
+Check '这一轮不做原地重启：关端游重开 + 重起 MAA 是外层那一次重试的事(2026-09-25 08:4x 实测走的正是那条路)' (
+    $blockDrain -notmatch 'Stop-Process' -and $blockDrain -notmatch 'Start-Process' -and
     $blockDrain -notmatch 'Stop-MaaAndGame' -and $blockDrain -notmatch 'Start-GdArkClient')
-Check '重启后把读取偏移/停滞计时/重试计数都归零，并清掉 $drained(否则会立刻又早退一次)' (
-    $blockDrain -match '\$drained = \$false' -and $blockDrain -match '\$lastGrowth = Get-Date' -and
-    $blockDrain -match '\$stuckExec = 0' -and $blockDrain -match 'continue')
-Check '拿不掉就早退成 stalled(交给外层那一次重试)，不再耗着' (
-    $blockDrain -match "Status = 'stalled'" -and $blockDrain -match '屏幕上也没找到能关掉的挡路窗口')
+Check '兜过没兜成都一律立刻早退成 stalled，并说明外层会重试一次(不再清零计时继续等)' (
+    $blockDrain -match "Status = 'stalled'" -and $blockDrain -match '外层会重试一次' -and
+    $blockDrain -notmatch '(?im)^\s*continue\s*$')
 
 $res = Show-GdTestResult -Tag 'ark'
 if ($NoExit) { return $res }
