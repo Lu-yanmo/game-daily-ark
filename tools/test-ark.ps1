@@ -11,6 +11,7 @@ Show-GdCommonVerbChecks
 Show-GdCommonEntryHintChecks
 Show-GdCommonScriptHygieneChecks
 Show-GdCommonEmptyPathChecks
+Show-GdCommonRunLockChecks
 
 # [t2] 往后的每一组都要读 MAA 自己的文件(关卡表 resource\stages.json、队列 configuration.json)。
 # paths.maaDir 还没填(exe 第一次跑、只 setup -SkipScan 过)就先说人话：
