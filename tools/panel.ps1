@@ -45,14 +45,29 @@ if (Test-Path -LiteralPath (Join-Path $root 'lib\decisions.ps1')) {
     . (Join-Path $root 'lib\decisions.ps1')    # 只为了读两道门的当前状态，不做判定
     $haveDecisions = $true
 }
+# 框架层：面板要的是"这棵树上有几款游戏、各叫什么、要不要管理员"，这三样都在模块清单里。
+# 只注册不点业务库 —— 面板自己一行游戏逻辑都不跑，全部动作都是子进程调入口。
+$haveModules = $false
+if (Test-Path -LiteralPath (Join-Path $root 'lib\modules.ps1')) {
+    . (Join-Path $root 'lib\modules.ps1')
+    $haveModules = $true
+}
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 # ---------- 这个仓库里有哪几路、入口脚本叫什么、参数怎么拼 ----------
 $script:games = @()
-if (Test-Path -LiteralPath (Join-Path $root 'lib\maa.ps1'))  { $script:games += 'ark' }
-if (Test-Path -LiteralPath (Join-Path $root 'lib\m9a.ps1'))  { $script:games += 'r1999' }
+if ($haveModules) {
+    [void](Import-GdModules -Quiet)
+    $script:games = @(Get-GdModuleIds -AvailableOnly)
+}
+if (-not $script:games.Count) {
+    # 回落(工程里没有 modules.ps1 的老树/被裁坏)：按助手库在不在探测，和拆分前逐字一致。
+    # 正常路径永远走不到这里 —— 面板要用的是清单里的显示名和提权标记，那些只有注册表给得出。
+    if (Test-Path -LiteralPath (Join-Path $root 'lib\maa.ps1'))  { $script:games += 'ark' }
+    if (Test-Path -LiteralPath (Join-Path $root 'lib\m9a.ps1'))  { $script:games += 'r1999' }
+}
 $script:both = ($script:games.Count -gt 1)
 
 $entryName = ''
@@ -79,9 +94,31 @@ $flagShopDone = Get-PanelFlag @('ArkShopDone', 'ShopDone')
 $flagGames    = Get-PanelFlag @('Games')
 
 # 按钮和提示语里不许出现"只有这台机器/这一份合体工程才成立"的说法：这份文件会原样进两个导出仓库。
-$script:elevNote = if ($script:games -contains 'ark') { '，方舟那一路要管理员' } else { '' }
+# "哪一路要管理员"现在从模块清单的 RequiresAdmin 读，所以方舟仓库里是"，方舟那一路要管理员"、
+# 1999 仓库里是空串 —— 同一段代码，措辞由这一路自己的声明决定。
+$adminNames = @()
+if ($haveModules) {
+    foreach ($id in $script:games) {
+        $m = Get-GdModule -Id $id
+        if ($m -and $m.RequiresAdmin) { $adminNames += [string]$m.ShortName }
+    }
+}
+$script:elevNote = ''
+if ($adminNames.Count) { $script:elevNote = '，' + ($adminNames -join '/') + '那一路要管理员' }
+elseif (-not $haveModules -and ($script:games -contains 'ark')) { $script:elevNote = '，方舟那一路要管理员' }   # 老树回落
 
-$panelTail = if ($script:both) { '全部' } elseif ($script:games -contains 'ark') { '方舟' } else { '1999' }
+# 单路时按钮上写这一路的名字，两路以上写"全部" —— 这个名字来自清单的 ShortName，
+# -HeadlessCheck 会拿 $script:idleRunText 比对，所以清单里的短名一改，面板文案跟着改，不会两处不一致。
+if ($script:both) { $panelTail = '全部' }
+elseif ($script:games.Count -eq 1) {
+    if ($haveModules) {
+        # 单路仓库的按钮文案 = 这一路自己的短名(方舟 / 1999)，来自清单
+        $one = Get-GdModule -Id $script:games[0]
+        $panelTail = if ($one -and [string]$one.ShortName) { [string]$one.ShortName } else { [string]$script:games[0] }
+    }
+    else { $panelTail = if ($script:games[0] -eq 'ark') { '方舟' } else { '1999' } }   # 老树回落
+}
+else { $panelTail = '全部' }
 $script:idleRunText = '开始跑一轮(' + $panelTail + ')'
 
 # ---------- 子进程用哪个引擎：面板跑在哪个引擎上就用哪个(5.1 的机器不会凭空长出 pwsh) ----------
@@ -111,6 +148,10 @@ $script:cardEnv     = $null
 $script:cardGates   = $null
 $script:timer       = $null
 $script:proc        = $null
+$script:page        = 'all'          # 左侧导航当前停在哪儿：'all' 或某个模块 id
+$script:navBtns     = @{}            # id -> 导航按钮(刷新时要按这一路的状态改灯)
+$script:navKind     = @{}            # id -> 这一路此刻该亮什么色(ok/warn/err/dim)，由摘要行的 Kind 得来
+$script:pageTitle   = $null          # 头部那行页标题(跟着 $script:page 变)
 <# 重定向文件带上本进程的 PID：定时器一上来就会从 0 开始读这两个文件，
    用固定名字的话，双击面板会先把上一次会话(甚至上一轮)的输出原样重播一遍，看着像"刚开跑就有日志"。 #>
 $script:outPath     = Join-Path $env:TEMP ('game-daily-panel-stdout-{0}.txt' -f $PID)
@@ -186,7 +227,7 @@ function Get-PanelSummaryParts {
                 $txt = ('{0} {1} → {2} {3}' -f $time, $g, $st, $dur)
                 $withMode = ('{0} {1} {2}→{3} {4}' -f $time, $g, [string]$r.mode, $st, $dur)
                 if ($withMode.Length -le 38) { $txt = $withMode }
-                $lastRows += @{ Text = $txt; Kind = $kind }
+                $lastRows += @{ Text = $txt; Kind = $kind; Game = [string]$g }
             }
         } catch { $lastRows = @(@{ Text = ('history.csv 读不动：' + $_.Exception.Message); Kind = 'warn' }) }
     }
@@ -194,14 +235,15 @@ function Get-PanelSummaryParts {
 
     $gateRows = @()
     foreach ($g in $script:games) {
-        if (-not $haveDecisions) { $gateRows += @{ Text = ($g + ' 判定库不在，门状态未知'); Kind = 'warn' }; continue }
+        # 每条门状态都带上 Game(= 模块 id)：左侧导航按这一路过滤卡片时靠它，不再靠"文本前缀像不像"。
+        if (-not $haveDecisions) { $gateRows += @{ Text = ($g + ' 判定库不在，门状态未知'); Kind = 'warn'; Game = [string]$g }; continue }
         $ack = @{}; $shop = @{}
         try { $ack = Get-GdAckMap -Game $g } catch { }
         try { $shop = Get-GdShopDoneMap -Game $g } catch { }
-        if ($ack.Count) { $gateRows += @{ Text = (($g + ' 活动确认：已确认 ' + (($ack.Keys | Sort-Object) -join ','))); Kind = 'ok' } }
-        else { $gateRows += @{ Text = ($g + ' 活动确认：未确认 → 新活动先跳过'); Kind = 'warn' } }
-        if ($shop.Count) { $gateRows += @{ Text = (($g + ' 商店领空：已标记 ' + (($shop.Keys | Sort-Object) -join ',') + '(剩余理智转长草)')); Kind = 'ok' } }
-        else { $gateRows += @{ Text = ($g + ' 商店领空：未标记'); Kind = 'dim' } }
+        if ($ack.Count) { $gateRows += @{ Text = (($g + ' 活动确认：已确认 ' + (($ack.Keys | Sort-Object) -join ','))); Kind = 'ok'; Game = [string]$g } }
+        else { $gateRows += @{ Text = ($g + ' 活动确认：未确认 → 新活动先跳过'); Kind = 'warn'; Game = [string]$g } }
+        if ($shop.Count) { $gateRows += @{ Text = (($g + ' 商店领空：已标记 ' + (($shop.Keys | Sort-Object) -join ',') + '(剩余理智转长草)')); Kind = 'ok'; Game = [string]$g } }
+        else { $gateRows += @{ Text = ($g + ' 商店领空：未标记'); Kind = 'dim'; Game = [string]$g } }
     }
 
     $envRows = @()
@@ -244,6 +286,66 @@ function Get-PanelSummaryText {
     $out += '环境：'
     foreach ($r in $p.Env) { $out += ('  ' + [string]$r.Text) }
     return ($out -join "`r`n")
+}
+
+# ---------- 分页(左侧导航按模块过滤卡片) ----------
+<# "总览"就是重排前那一页：四张卡把这一仓所有行都摆出来。
+   选中某一路时只留那一路的行(上一轮 / 两道门按行带的 Game 过滤，环境那一路的探针由模块清单给)，
+   定时任务是"按计划任务时间点"的、不分路 → 每一页都原样留着。
+   单游戏仓库也走同一套：那边的行本来就全属于这一路，过滤等于没过滤，唯一区别是环境卡多出这一路的探针 ——
+   所以"总览 / 这一路"两条导航在哪个仓库里都不是摆设(以前按 $script:both 直接短路，单游戏仓库点了等于没点)。
+   过滤后可能一张卡一行都不剩，那会让 -SelfTest 的"卡片不许空"红，也容易看着像面板坏了，
+   所以每个会被过滤的槽位都补一行说明。 #>
+function Get-PanelPageRows {
+    param([Parameter(Mandatory)]$Parts, [AllowEmptyString()][string]$Page = 'all')
+    if (-not $Page -or $Page -eq 'all') { return $Parts }
+    $keep = { param($rows) @($rows | Where-Object { -not $_.Game -or [string]$_.Game -eq $Page }) }
+    $last = @(& $keep $Parts.Last)
+    if (-not $last.Count) { $last = @(@{ Text = ('{0} 这一路这台机器还没跑过' -f (Get-PanelPageTitle -Page $Page)); Kind = 'dim' }) }
+    $gates = @(& $keep $Parts.Gates)
+    if (-not $gates.Count) { $gates = @(@{ Text = '没读到门状态(判定库不在？)'; Kind = 'warn' }) }
+    <# 环境卡：先"这一仓的路径就绪没有"，再这一路自己的探针，最后才是面板自己的说明行(入口名/引擎版本)。
+       顺序这样排是因为卡片装不下时会从尾部省掉 —— 停在某一路时最不该被省掉的就是那一路的探针。 #>
+    $mod = @(Get-PanelModuleEnvRows -Id $Page)
+    $head = @(@($Parts.Env) | Where-Object { $_.Kind -ne 'dim' })
+    $tail = @(@($Parts.Env) | Where-Object { $_.Kind -eq 'dim' -and [string]$_.Text -notmatch '^这一仓' })
+    return @{
+        Times = $Parts.Times
+        Last  = $last
+        Gates = $gates
+        Env   = @(@($head) + @($mod) + @($tail))
+    }
+}
+
+function Get-PanelModuleEnvRows {
+    <# 这一路自己那几条路径就绪没有 —— 由模块清单的 EnvProbes 钩子给(和 daily-clear 开跑前探的是同一份清单，
+        面板不另写一套路径知识)。注册表没装载/这一路没装时返回空，让上面那行"读不到"兜着。 #>
+    param([string]$Id)
+    $out = @()
+    if (-not (Get-Command Get-GdModule -ErrorAction SilentlyContinue)) { return $out }
+    $m = Get-GdModule -Id $Id
+    if (-not $m -or -not (Test-GdModuleInstalled -Module $m)) { return $out }
+    $S = $null
+    try { $S = Get-GdSettings -Quiet } catch { }
+    $rows = $null
+    try { $rows = Get-GdModuleEnvRows -Module $m -S $S } catch { $rows = $null }
+    if ($null -eq $rows) { $out += @{ Text = "$Id 这一路的环境清单读不到"; Kind = 'warn' }; return $out }
+    foreach ($label in @($rows.Keys)) {
+        $p = [string]$rows[$label]
+        if (Test-GdPathReady $p) { $out += @{ Text = ("$label 就绪"); Kind = 'ok' } }
+        else { $out += @{ Text = ("$label 没填或不存在 → 跑 setup.ps1"); Kind = 'err' } }
+    }
+    return $out
+}
+
+function Get-PanelPageTitle {
+    param([AllowEmptyString()][string]$Page)
+    if (-not $Page -or $Page -eq 'all') { return '总览' }
+    if (Get-Command Get-GdModule -ErrorAction SilentlyContinue) {
+        $m = Get-GdModule -Id $Page
+        if ($m) { return [string]$m.Name }
+    }
+    return [string]$Page
 }
 
 # ---------- 日志区 ----------
@@ -378,12 +480,61 @@ function Set-PanelBusy {
     Set-PanelChip -Text $Note -Kind $(if ($Busy) { 'busy' } else { 'idle' })
 }
 
+function Get-PanelModuleLight {
+    <# 导航那一行左边的小圆点亮什么：这一路"要不要人看一眼"，不是面板下的结论 ——
+        全部取自 Get-PanelSummaryParts 已经算好的 Kind(上一轮红=红；门没确认=黄；跑通过=绿；没记录=灰)。 #>
+    param([Parameter(Mandatory)][string]$Id, [Parameter(Mandatory)]$Parts)
+    $last = @($Parts.Last | Where-Object { $_.Game -and [string]$_.Game -eq $Id })
+    foreach ($r in $last) { if ([string]$r.Kind -eq 'err') { return 'err' } }
+    foreach ($r in @($Parts.Gates | Where-Object { $_.Game -and [string]$_.Game -eq $Id })) {
+        if ([string]$r.Kind -eq 'err') { return 'err' }
+        if ([string]$r.Kind -eq 'warn') { return 'warn' }
+    }
+    if ($last.Count) { return 'ok' }
+    return 'dim'
+}
+function Get-PanelWorstLight {
+    <# "总览"那一行该亮什么：取所有已注册模块里最扎眼的那一档(红 > 黄 > 绿 > 灰)。
+        这不是新判定 —— 四档本来就来自各卡片行的 Kind，这里只是把同一批颜色折叠一下，好让导航灯不撒谎。 #>
+    param([Parameter(Mandatory)]$Kinds)
+    foreach ($k in @($Kinds)) { if ([string]$k -eq 'err') { return 'err' } }
+    foreach ($k in @($Kinds)) { if ([string]$k -eq 'warn') { return 'warn' } }
+    foreach ($k in @($Kinds)) { if ([string]$k -eq 'ok') { return 'ok' } }
+    return 'dim'
+}
+function Set-PanelNavLight {
+    param([Parameter(Mandatory)][string]$Id, [string]$Kind = 'dim')
+    $b = $script:navBtns[$Id]
+    if (-not $b) { return }
+    # 认不得的 Kind(键缺失/以后新增的颜色名)一律回落到灰：这里画错只是灯不好看，但 $theme[空] 拿到 $null 会让赋值炸。
+    if (@('ok', 'warn', 'err') -notcontains [string]$Kind) { $Kind = 'dim' }
+    $on = ([string]$script:page -eq $Id)
+    # 灯色说"这一路要不要人看一眼"，实心/空心说"当前停在哪一页" —— 选中项一定实心，否则换页看不出换来换去
+    $b.Text = ([string]$b.Tag) + $(if ($on -or $Kind -ne 'dim') { '   ●' } else { '   ○' })
+    $b.ForeColor = $(if ($Kind -eq 'dim') { $script:theme['dim'] } else { $script:theme[[string]$Kind] })
+    $b.BackColor = $(if ($on) { $script:cNavOn } else { $script:cNav })
+}
+function Select-PanelPage {
+    <# 换页只做两件事：记住这一页，然后让 Refresh-PanelSummary 重画(它自己会重画导航选中态和页标题)。
+        不在这里重复画一遍 —— 以前两边都画，改一处漏一处就会出现"点了但高亮没动"。
+        不改任何命令行参数、不碰判定 —— 玩家在这一页点「跑一轮」仍然是整仓一起跑(和重排前一致)。 #>
+    param([AllowEmptyString()][string]$Page)
+    if (-not $Page) { $Page = 'all' }
+    $script:page = $Page
+    Refresh-PanelSummary
+}
 function Refresh-PanelSummary {
     $p = Get-PanelSummaryParts
-    Set-PanelCardLines -Card $script:cardTimes -Rows $p.Times
-    Set-PanelCardLines -Card $script:cardLast -Rows $p.Last
-    Set-PanelCardLines -Card $script:cardGates -Rows $p.Gates -MaxLines 5
-    Set-PanelCardLines -Card $script:cardEnv -Rows $p.Env -MaxLines 5
+    $script:navKind = @{}
+    foreach ($g in $script:games) { $script:navKind[[string]$g] = Get-PanelModuleLight -Id ([string]$g) -Parts $p }
+    $script:navKind['all'] = Get-PanelWorstLight -Kinds @(@($script:navKind.Values))
+    foreach ($k in @($script:navBtns.Keys)) { Set-PanelNavLight -Id ([string]$k) -Kind ([string]$script:navKind[[string]$k]) }
+    if ($script:pageTitle) { $script:pageTitle.Text = Get-PanelPageTitle -Page $script:page }
+    $r = Get-PanelPageRows -Parts $p -Page $script:page
+    Set-PanelCardLines -Card $script:cardTimes -Rows $r.Times
+    Set-PanelCardLines -Card $script:cardLast -Rows $r.Last
+    Set-PanelCardLines -Card $script:cardGates -Rows $r.Gates -MaxLines 5
+    Set-PanelCardLines -Card $script:cardEnv -Rows $r.Env -MaxLines 6
     $script:stampLabel.Text = '状态刷新于 ' + (Get-Date -Format 'HH:mm:ss')
 }
 
@@ -503,13 +654,16 @@ function Get-PanelHeadlessStats {
 #>
 function New-GdColor { param([int]$R,[int]$G,[int]$B) return [System.Drawing.Color]::FromArgb($R,$G,$B) }
 $script:cLogDim  = New-GdColor 125 133 144
+<# 配色(2026-09-25 第二次重排，参考 MAA 主界面)：整窗深色底 + 方舟蓝做唯一强调色，
+   语义色一律往"深底上看得清"那一档走 —— 卡片行是浅色文字，绿/黄/红要亮,不能拿浅底那套深色凑。
+   只有 info(正文) 和 dim(说明) 是中性色，其余三色都带语义：改任何一色都会同时改四张卡的读感。 #>
 $script:theme = @{
-    ok     = New-GdColor  26 127  75
-    warn   = New-GdColor 180 105  14
-    err    = New-GdColor 192  57  43
-    info   = New-GdColor  31  42  55
-    step   = New-GdColor  47 111 237
-    dim    = New-GdColor  88  99 114     # 白底上的"纯说明"行：比日志那组灰要深，否则 1.0 缩放下几乎看不清
+    ok     = New-GdColor  74 222 128
+    warn   = New-GdColor 251 191  36
+    err    = New-GdColor 248 113 113
+    info   = New-GdColor 226 232 240
+    step   = New-GdColor  96 165 250
+    dim    = New-GdColor 148 163 184     # 深底上的"纯说明"行：比正文暗一档就够，再浅就和 ok 分不开了
     logOk   = New-GdColor 126 231 135
     logWarn = New-GdColor 227 179  65
     logErr  = New-GdColor 255 123 114
@@ -517,16 +671,19 @@ $script:theme = @{
     logInfo = New-GdColor 201 209 217
     logDim  = New-GdColor 125 133 144
 }
-$script:cFace    = New-GdColor 255 255 255      # 卡片
-$script:cCardTitle = New-GdColor 61 74 92       # 卡片小标题(大写字母那么小，再浅就没对比了)
-$script:cWindow  = New-GdColor 238 241 245      # 窗口底
-$script:cNav     = New-GdColor  31  41  55      # 头部深色带
-$script:cNavSub  = New-GdColor 168 180 196
-$script:cLine    = New-GdColor 214 222 231      # 卡片描边
-$script:cAccent  = New-GdColor  47 111 237      # 主动作
-$script:cAccentHi= New-GdColor  66 133 255
-$script:cAccentLo= New-GdColor  34  84 190
-$script:cLogBack = New-GdColor  22  25  31
+$script:cFace    = New-GdColor  31  39  51      # 卡片
+$script:cCardTitle = New-GdColor 143 163 191    # 卡片小标题(大写字母那么小，再浅就没对比了)
+$script:cWindow  = New-GdColor  21  27  36      # 窗口底
+$script:cNav     = New-GdColor  16  22  30      # 左侧导航带(比窗口底再深一档，靠描边分不出来)
+$script:cNavSub  = New-GdColor 124 140 163
+$script:cLine    = New-GdColor  44  55  74      # 卡片描边
+$script:cAccent  = New-GdColor   0 160 233      # 主动作(MAA 那一档方舟蓝)
+$script:cAccentHi= New-GdColor  51 180 240
+$script:cAccentLo= New-GdColor   0 134 196
+$script:cHover   = New-GdColor  39  49  63      # 次级按钮悬停
+$script:cDown    = New-GdColor  46  58  74
+$script:cNavOn   = New-GdColor  34  52  74      # 导航项选中底(强调色往深里压一点，别盖过主动作按钮)
+$script:cLogBack = New-GdColor  13  18  25
 <# 日志区是深底，卡片那套绿/黄/红在上面太暗 → 同一套语义换一组亮色，别拿卡片色去涂日志 #>
 $script:logTheme = @{
     ok   = $script:theme['logOk']
@@ -628,7 +785,12 @@ function New-PanelCard {
 
 function Set-PanelCardLines {
     <# 卡片里的行：一条一个 Label(定宽、超出省略号)，这样才能逐行着色。
-       行与行只按 y 排、宽度都等于卡片内宽 → 结构上不可能互相压住(-SelfTest 会继续钉这条) #>
+       行与行只按 y 排、宽度都等于卡片内宽 → 结构上不可能互相压住(-SelfTest 会继续钉这条)
+
+       行数上限不再写死在调用方：卡片高度决定装得下几行(第 i 行底 = 47 + i*18，不能超出高度)，
+       所以 $MaxLines 只是"最多说到第几条"，真画几条由容器算。
+       为什么必须算：分页后"环境"这一路会多出模块自己的探针行，写死 6 就会把最后一行画到卡片外面，
+       而 -SelfTest 的"越出容器"是唯一能发现它的自动化闸门 —— 让它自己少画一行、把余下条数报进省略行。 #>
     param($Card, [object[]]$Rows, [int]$MaxLines = 4)
     if (-not $Card) { return }
     foreach ($c in @($Card.Controls)) {
@@ -636,9 +798,14 @@ function Set-PanelCardLines {
     }
     $rows = @($Rows)
     $w = [int]$Card.ClientSize.Width - 28
-    $y = 30
+    $cap = [int][Math]::Floor((([int]$Card.ClientSize.Height) - 47) / 18)   # 装得下的最多行数
+    if ($cap -lt 1) { $cap = 1 }
     $n = $rows.Count
     if ($n -gt $MaxLines) { $n = $MaxLines }
+    if ($n -gt $cap) { $n = $cap }
+    if ($rows.Count -gt $n -and $n -ge $cap) { $n = $n - 1 }   # 末尾还要留一行给"…另有 N 条"
+    if ($n -lt 0) { $n = 0 }
+    $y = 30
     for ($i = 0; $i -lt $n; $i++) {
         $r = $rows[$i]
         $kind = 'info'
@@ -648,8 +815,8 @@ function Set-PanelCardLines {
         $l.Anchor = 'Top,Left,Right'
         $y += 18
     }
-    if ($rows.Count -gt $MaxLines) {
-        $l = New-PanelLabel -Parent $Card -Text ('…另有 ' + ($rows.Count - $MaxLines) + ' 条，命令行跑 status.ps1 看全部') `
+    if ($rows.Count -gt $n) {
+        $l = New-PanelLabel -Parent $Card -Text ('…另有 ' + ($rows.Count - $n) + ' 条，命令行跑 status.ps1 看全部') `
                             -X 14 -Y $y -W $w -H 17 -Color $script:theme['dim']
         $l.Tag = 'line'
         $l.Anchor = 'Top,Left,Right'
@@ -659,25 +826,43 @@ function Set-PanelCardLines {
 $script:form = New-Object System.Windows.Forms.Form
 $script:form.Text = '每日清体力 · 状态面板'
 $script:form.StartPosition = 'CenterScreen'
-$script:form.ClientSize = New-Object System.Drawing.Size(940, 730)
+$script:form.ClientSize = New-Object System.Drawing.Size(1140, 730)
 $script:form.BackColor = $script:cWindow
 $script:form.Font = $script:fontUI
 $script:form.MinimumSize = New-Object System.Drawing.Size(($script:form.Width), ($script:form.Height - 90))
 
-# ---- 头部：标题 / 一句话定位 / 状态灯 / 刷新时刻 ----
+<# ---- 版式：左侧导航带 + 右侧内容区(参考 MAA) ----
+   内容区整体右移 $railW，宽度 CW 维持重排前的 916 —— 卡片内部坐标(标题 14/行 14)因此一个字都不用改。
+   导航带里的"这一路"项由模块注册表生成：几款游戏就几条，单游戏仓库只有一条(那时也没有分页可言)。 #>
+$script:railW = 200
+$script:x0    = 212                       # 内容区左边界 = 导航带 + 12 留白
+$script:cw    = 916                       # 内容区宽度(= 重排前的窗口内容宽)
+$script:fontPage = New-Object System.Drawing.Font('Microsoft YaHei UI', 12, [System.Drawing.FontStyle]::Bold)
+
+$rail = New-Object System.Windows.Forms.Panel
+$rail.Location = New-Object System.Drawing.Point(0, 0)
+$rail.Size = New-Object System.Drawing.Size($script:railW, 730)
+$rail.BackColor = $script:cNav
+$rail.Anchor = 'Top,Left,Bottom'
+$null = $script:form.Controls.Add($rail)
+$null = New-PanelLabel -Parent $rail -Text '每日清体力' -X 20 -Y 18 -Color ([System.Drawing.Color]::White) -Font $script:fontTitle
+$null = New-PanelLabel -Parent $rail -Text '状态面板 · 只转达不判定' -X 21 -Y 50 -Color $script:cNavSub -Font $script:fontSmall
+$script:railNavY = 84                     # 导航项从这里往下排(建按钮时用它)
+
+# ---- 头部：当前页 / 一句话定位 / 状态灯 / 刷新时刻 ----
 $hdr = New-Object System.Windows.Forms.Panel
-$hdr.Location = New-Object System.Drawing.Point(12, 12)
-$hdr.Size = New-Object System.Drawing.Size(916, 64)
+$hdr.Location = New-Object System.Drawing.Point($script:x0, 12)
+$hdr.Size = New-Object System.Drawing.Size($script:cw, 64)
 $hdr.BackColor = $script:cNav
 $hdr.Anchor = 'Top,Left,Right'
 $null = $script:form.Controls.Add($hdr)
-$null = New-PanelLabel -Parent $hdr -Text '每日清体力 · 状态面板' -X 20 -Y 10 -Color ([System.Drawing.Color]::White) -Font $script:fontTitle
-$null = New-PanelLabel -Parent $hdr -Text '面板只转达，不替你判定 —— 结论与命令行跑同一套脚本得到的一样' `
-                       -X 21 -Y 41 -Color $script:cNavSub -Font $script:fontSmall
+$script:pageTitle = New-PanelLabel -Parent $hdr -Text (Get-PanelPageTitle -Page $script:page) -X 20 -Y 12 -Color ([System.Drawing.Color]::White) -Font $script:fontPage
+$null = New-PanelLabel -Parent $hdr -Text '结论与命令行跑同一套脚本得到的一样 · 要点鼠标请先看底部日志' `
+                       -X 21 -Y 42 -Color $script:cNavSub -Font $script:fontSmall
 $script:runLabel = New-PanelLabel -Parent $hdr -Text '空闲' -X 792 -Y 12 -W 106 -H 26 `
                                   -Color $script:theme['dim'] -Font $script:fontSection -Align 'Right'
 $script:runLabel.TextAlign = 'MiddleCenter'
-$script:runLabel.BackColor = New-GdColor 230 234 240
+$script:runLabel.BackColor = $script:cHover
 $script:runLabel.Anchor = 'Top,Right'
 Set-PanelRound -Ctl $script:runLabel -Radius 12
 $script:stampLabel = New-PanelLabel -Parent $hdr -Text '状态刷新于 -' -X 606 -Y 43 -W 292 -H 17 `
@@ -689,26 +874,27 @@ function Set-PanelChip {
     if (-not $script:runLabel) { return }
     $script:runLabel.Text = $Text
     if ($Kind -eq 'busy') {
-        $script:runLabel.BackColor = New-GdColor 255 244 214
-        $script:runLabel.ForeColor = New-GdColor 154 103   0
+        $script:runLabel.BackColor = New-GdColor  58  46  16      # 深底上的"正在跑"：黄字配暗黄底，不用系统高亮色
+        $script:runLabel.ForeColor = $script:theme['warn']
     } else {
-        $script:runLabel.BackColor = New-GdColor 230 234 240
+        $script:runLabel.BackColor = $script:cHover
         $script:runLabel.ForeColor = $script:theme['dim']
     }
     Set-PanelRound -Ctl $script:runLabel -Radius 12
 }
 
 # ---- 四张状态卡 ----
-# 132 = 标题(10+15) + 5 行(30 起每行 18，最后一行底 119) + 留白；MaxLines 与这个高度是一对，改一处要改两处
-$script:cardTimes = New-PanelCard 12  86 300 132 '定时任务' 'Top,Left'
-$script:cardLast  = New-PanelCard 324 86 300 132 '上一轮'   'Top,Left'
-$script:cardEnv   = New-PanelCard 636 86 292 132 '环境'     'Top,Right'
-$script:cardGates = New-PanelCard 12 226 916 132 '两道确认门(新活动要先你手动打过 / 商店领空后不再刷活动)' 'Top,Left,Right'
+# 132 高 = 标题(10+15) + 最多 5 行(30 起每行 18，最后一行底 119) + 留白。
+# 每张卡实际画几行由 Set-PanelCardLines 按容器高度算(见那里的注释)，$MaxLines 只是想说到第几条 —— 加行不必再改高度。
+$script:cardTimes = New-PanelCard $script:x0         86 300 132 '定时任务' 'Top,Left'
+$script:cardLast  = New-PanelCard ($script:x0 + 312) 86 300 132 '上一轮'   'Top,Left'
+$script:cardEnv   = New-PanelCard ($script:x0 + 624) 86 292 132 '环境'     'Top,Right'
+$script:cardGates = New-PanelCard $script:x0        226 $script:cw 132 '两道确认门(新活动要先你手动打过 / 商店领空后不再刷活动)' 'Top,Left,Right'
 
 # ---- 动作区：主动作只有一个，其余分两档 ----
 $act = New-Object System.Windows.Forms.Panel
-$act.Location = New-Object System.Drawing.Point(12, 366)
-$act.Size = New-Object System.Drawing.Size(916, 104)
+$act.Location = New-Object System.Drawing.Point($script:x0, 366)
+$act.Size = New-Object System.Drawing.Size($script:cw, 104)
 $act.BackColor = $script:cFace
 $act.Anchor = 'Top,Left,Right'
 Set-PanelBorder $act
@@ -733,27 +919,67 @@ function New-PanelButton {
             $b.FlatAppearance.MouseDownBackColor = $script:cAccentLo
             $b.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 10.5, [System.Drawing.FontStyle]::Bold)
         }
+        'nav' {
+            # 左侧导航项：平时和导航带同色(看着像文字)，悬停/选中才浮出底色 —— MAA 就是这么处理次级导航的
+            $b.BackColor = $script:cNav
+            $b.ForeColor = $script:theme['info']
+            $b.Font = $script:fontUI
+            $b.TextAlign = 'MiddleLeft'
+            $b.Padding = New-Object System.Windows.Forms.Padding(6, 0, 0, 0)
+            $b.FlatAppearance.BorderSize = 0
+            $b.FlatAppearance.MouseOverBackColor = $script:cHover
+            $b.FlatAppearance.MouseDownBackColor = $script:cDown
+        }
         'chip' {
             $b.BackColor = $script:cFace
             $b.ForeColor = $script:theme['info']
             $b.Font = $script:fontSmall
             $b.FlatAppearance.BorderColor = $script:cLine
             $b.FlatAppearance.BorderSize = 1
-            $b.FlatAppearance.MouseOverBackColor = New-GdColor 244 248 255
+            $b.FlatAppearance.MouseOverBackColor = $script:cHover
+            $b.FlatAppearance.MouseDownBackColor = $script:cDown
         }
         default {
             $b.BackColor = $script:cFace
             $b.ForeColor = $script:theme['info']
             $b.FlatAppearance.BorderColor = $script:cLine
             $b.FlatAppearance.BorderSize = 1
-            $b.FlatAppearance.MouseOverBackColor = New-GdColor 244 248 255
-            $b.FlatAppearance.MouseDownBackColor = New-GdColor 232 239 252
+            $b.FlatAppearance.MouseOverBackColor = $script:cHover
+            $b.FlatAppearance.MouseDownBackColor = $script:cDown
         }
     }
     $null = $Parent.Controls.Add($b)
     Set-PanelRound -Ctl $b -Radius 8
     return $b
 }
+
+# ---- 左侧导航项：总览 + 注册表里有几款游戏就几条(单游戏仓库里只有"总览 + 那一款") ----
+<# 条目文字取自模块清单的 ShortName，页 id 存在 AccessibleName 里给点击回调用 ——
+   不在这里写死 ark / r1999：加一款游戏只需要往 lib\ 里放清单，面板自己长出来。
+   注册表没装载成(缺 lib\modules.ps1)时退回 $script:games 那串 id，导航仍然可用，只是名字是 id。 #>
+$navItems = @(@{ Id = 'all'; Label = '总览' })
+foreach ($g in $script:games) {
+    $id = [string]$g
+    $shown = $id
+    if (Get-Command Get-GdModule -ErrorAction SilentlyContinue) {
+        $mm = Get-GdModule -Id $id
+        if ($mm -and [string]$mm.ShortName) { $shown = [string]$mm.ShortName }
+    }
+    $navItems += @{ Id = $id; Label = $shown }
+}
+for ($i = 0; $i -lt $navItems.Count; $i++) {
+    $it = $navItems[$i]
+    $nb = New-PanelButton -Parent $rail -Text ([string]$it.Label) -X 12 -Y ($script:railNavY + $i * 38) -W ($script:railW - 24) -H 34 -Kind 'nav'
+    $nb.Tag = [string]$it.Label
+    $nb.AccessibleName = [string]$it.Id
+    # 页 id 用 sender 取(不用 $this)：$this 只在"事件脚本块"这一种上下文里有定义，写成 param($s,$e) 才是显式的，
+    # 也才让 -SelfTest 能拿 Invoke-PanelClick 把这条点击链真演一遍(见下面的导航断言)。
+    $nb.Add_Click({ param($s, $e) Select-PanelPage -Page ([string]$s.AccessibleName) })
+    $script:navBtns[[string]$it.Id] = $nb     # 'all' 也要存：不存就没人给它重画选中底色，离开总览后它还留着高亮
+}
+$navHintY = $script:railNavY + $navItems.Count * 38 + 6
+$null = New-PanelLabel -Parent $rail -Text '导航只是换个角度看同一批' -X 21 -Y $navHintY -W ($script:railW - 30) -H 17 -Color $script:cNavSub -Font $script:fontSmall
+$null = New-PanelLabel -Parent $rail -Text '读数，不改变要跑什么' -X 21 -Y ($navHintY + 17) -W ($script:railW - 30) -H 17 -Color $script:cNavSub -Font $script:fontSmall
 
 $script:runBtn = New-PanelButton -Parent $act -Text $script:idleRunText -X 16 -Y 16 -W 214 -H 44 -Kind 'primary'
 $btnDry     = New-PanelButton -Parent $act -Text '今天会跑什么'  -X 238 -Y 16 -W 150
@@ -768,8 +994,8 @@ $btnHelp  = New-PanelButton -Parent $act -Text '命令行怎么跑' -X 526 -Y 68
 
 # ---- 日志区(深色) ----
 $logCard = New-Object System.Windows.Forms.Panel
-$logCard.Location = New-Object System.Drawing.Point(12, 478)
-$logCard.Size = New-Object System.Drawing.Size(916, 240)
+$logCard.Location = New-Object System.Drawing.Point($script:x0, 478)
+$logCard.Size = New-Object System.Drawing.Size($script:cw, 240)
 $logCard.BackColor = $script:cFace
 $logCard.Anchor = 'Top,Left,Right,Bottom'
 Set-PanelBorder $logCard
@@ -905,7 +1131,11 @@ try {
 } catch { }
 Add-PanelHelpRow '今天会跑什么' ".\$entryName -DryRun" @($entryName)
 Add-PanelHelpRow '跑一轮'      '.\run-via-task.ps1'    @('run-via-task.ps1')
-if ($script:both) { Add-PanelHelpRow '只跑一路' ".\$entryName -Games ark   (或 r1999)" @($entryName) }
+if ($script:both) {
+    # 两款时正好等于原来那句"-Games ark   (或 r1999)"；三款以上把后面的并列进括号里，别套两层括号
+    $rest = $script:games[1..($script:games.Count - 1)] -join ' / '
+    Add-PanelHelpRow '只跑一路' ('.\' + $entryName + ' -Games ' + $script:games[0] + '   (或 ' + $rest + ')') @($entryName)
+}
 Add-PanelHelpRow '环境体检'    '.\status.ps1'          @('status.ps1')
 Add-PanelHelpRow '首次设置'    '.\setup.ps1 -DryRun'   @('setup.ps1')
 Add-PanelHelpRow '装定时'      '.\install-task.ps1'    @('install-task.ps1')
@@ -942,6 +1172,56 @@ if ($DumpTree) {
     exit 0
 }
 
+function Invoke-PanelClick {
+    <# 在"窗口从没显示过"的情况下把某个控件的 Click 真发一次。
+        为什么不用 PerformClick：它内部要求控件可见(父窗体没 Show 过 → Visible=false)，于是不管怎么点都是空转，
+        自检会因此"永远看不见点击链坏掉"。OnClick 是 Control 的受保护方法，反射调它才会真的抬事件、跑 Add_Click 那个脚本块。 #>
+    param([Parameter(Mandatory)]$Ctl)
+    $m = $Ctl.GetType().GetMethod('OnClick', [System.Reflection.BindingFlags]'Instance, NonPublic')
+    if (-not $m) { throw '拿不到 OnClick，点击链验不了' }
+    $null = $m.Invoke($Ctl, @([System.EventArgs]::Empty))
+}
+
+function Get-PanelLayoutIssues {
+    <# 布局自检：没人会用自动化去肉眼看窗口，所以把"控件互相压住 / 越出父容器 / 卡片空了"变成可判定的检查。
+       按容器逐个查(卡片里的行不能压住、不能越出卡片)，返回红项文字列表；空数组就是这一页没问题。
+       为什么它现在必须能按页调用：左侧导航换页会重新生成卡片里的行 —— 分页后的行比总览页更长更多，
+       只在默认那一页查就等于"改了新页却没人验过新页"。 #>
+    param([string]$Tag = '')
+    $bad = @()
+    $all = @(Get-PanelDescendants $script:form)
+    $containers = @($script:form)
+    foreach ($d in $all) { if (@($d.Controls).Count -gt 0) { $containers += $d } }
+    foreach ($ct2 in $containers) {
+        $cl = $ct2.ClientSize
+        $kids = @($ct2.Controls)
+        $where = [string]$ct2.GetType().Name
+        if ($ct2 -ne $script:form) {
+            $tt = @($kids | Where-Object { $_.Tag -eq 'title' } | Select-Object -First 1)
+            if ($tt.Count) { $where = $where + '(' + [string]$tt[0].Text + ')' }
+        }
+        for ($i = 0; $i -lt $kids.Count; $i++) {
+            $a = $kids[$i].Bounds
+            if ($a.X -lt 0 -or $a.Y -lt 0 -or ($a.X + $a.Width) -gt $cl.Width -or ($a.Y + $a.Height) -gt $cl.Height) {
+                $bad += ($Tag + '越出容器 ' + $where + ': ' + [string]$kids[$i].GetType().Name + ' ' + [string]$a)
+            }
+            for ($j = $i + 1; $j -lt $kids.Count; $j++) {
+                $b = $kids[$j].Bounds
+                if ($a.X -lt ($b.X + $b.Width) -and $b.X -lt ($a.X + $a.Width) -and
+                    $a.Y -lt ($b.Y + $b.Height) -and $b.Y -lt ($a.Y + $a.Height)) {
+                    $bad += ($Tag + '互相压住(' + $where + '): ' + [string]$a + ' × ' + [string]$b)
+                }
+            }
+        }
+    }
+    $empty = @()
+    foreach ($pair in @(@('定时任务', $script:cardTimes), @('上一轮', $script:cardLast), @('两道门', $script:cardGates), @('环境', $script:cardEnv))) {
+        if (@(@($pair[1].Controls) | Where-Object { $_.Tag -eq 'line' }).Count -eq 0) { $empty += [string]$pair[0] }
+    }
+    if ($empty.Count) { $bad += ($Tag + '这些卡片一行都没渲染出来：' + ($empty -join ' , ')) }
+    return $bad
+}
+
 if ($SelfTest) {
     <# 自动化验证用：不进消息循环、不显示窗口，只把渲染结果打到控制台。
        这一条会在两份导出仓库里各跑一遍(验收链第 6 步)，所以它是"改版式有没有把人看到的东西弄丢"的唯一自动化闸门：
@@ -961,37 +1241,32 @@ if ($SelfTest) {
     Pump-PanelOutput
     Write-Host ('日志区行数: ' + $script:logBox.Lines.Count)
     Write-Host ('输出泵可用: ' + [bool](Get-Command Read-PanelNewText -ErrorAction SilentlyContinue))
-    <# 布局自检：没人会用自动化去肉眼看窗口，所以把"控件互相压住/越出父容器/卡片空了"这种问题变成可判定的检查 #>
-    $bad = @()
-    $containers = @($script:form)
-    foreach ($d in $all) { if (@($d.Controls).Count -gt 0) { $containers += $d } }
-    foreach ($ct2 in $containers) {
-        $cl = $ct2.ClientSize
-        $kids = @($ct2.Controls)
-        $where = [string]$ct2.GetType().Name
-        if ($ct2 -ne $script:form) {
-            $tt = @($kids | Where-Object { $_.Tag -eq 'title' } | Select-Object -First 1)
-            if ($tt.Count) { $where = $where + '(' + [string]$tt[0].Text + ')' }
+    <# 布局自检：每一页都换过去查一遍(切页会重建卡片里的行)。
+       导航项本身也在这里钉：注册表里多一路就该多一条，漏了就是"面板上看不见这一路"——
+       那正是加模块时最容易忘记回来改面板的地方。 #>
+    $bad = @(Get-PanelLayoutIssues -Tag '总览页 ')
+    <# 换页必须经"点导航按钮"这条路，而不是直接调 Select-PanelPage：
+        前者是玩家真正做的事(事件处理 → 换页 → 重画)，后者只验到函数本身 ——
+        事件脚本块里那个 sender 取错了(以前踩过的 $this 坑)只有 Invoke-PanelClick 能发现。 #>
+    foreach ($g in $script:games) {
+        $nb = $script:navBtns[[string]$g]
+        if (-not $nb) { $bad += ('导航里没有这一路：' + [string]$g); continue }
+        Invoke-PanelClick $nb
+        if ([string]$script:page -ne [string]$g) {
+            $bad += ('点了 ' + [string]$g + ' 这一路，页面还停在 ' + [string]$script:page + '(点击链没走通)')
         }
-        for ($i = 0; $i -lt $kids.Count; $i++) {
-            $a = $kids[$i].Bounds
-            if ($a.X -lt 0 -or $a.Y -lt 0 -or ($a.X + $a.Width) -gt $cl.Width -or ($a.Y + $a.Height) -gt $cl.Height) {
-                $bad += ('越出容器 ' + $where + ': ' + [string]$kids[$i].GetType().Name + ' ' + [string]$a)
-            }
-            for ($j = $i + 1; $j -lt $kids.Count; $j++) {
-                $b = $kids[$j].Bounds
-                if ($a.X -lt ($b.X + $b.Width) -and $b.X -lt ($a.X + $a.Width) -and
-                    $a.Y -lt ($b.Y + $b.Height) -and $b.Y -lt ($a.Y + $a.Height)) {
-                    $bad += ('互相压住(' + $where + '): ' + [string]$a + ' × ' + [string]$b)
-                }
-            }
-        }
+        $want = Get-PanelPageTitle -Page ([string]$g)
+        if ([string]$script:pageTitle.Text -ne $want) { $bad += ('点了 ' + [string]$g + ' 但页标题没跟着换(应是 ' + $want + '，实际 ' + [string]$script:pageTitle.Text + ')') }
+        $bad += @(Get-PanelLayoutIssues -Tag ($want + '页 '))
     }
-    $empty = @()
-    foreach ($pair in @(@('定时任务', $script:cardTimes), @('上一轮', $script:cardLast), @('两道门', $script:cardGates), @('环境', $script:cardEnv))) {
-        if (@(@($pair[1].Controls) | Where-Object { $_.Tag -eq 'line' }).Count -eq 0) { $empty += [string]$pair[0] }
-    }
-    if ($empty.Count) { $bad += ('这些卡片一行都没渲染出来：' + ($empty -join ' , ')) }
+    if ($script:navBtns['all']) { Invoke-PanelClick $script:navBtns['all'] } else { Select-PanelPage -Page 'all' }
+    if ([string]$script:page -ne 'all') { $bad += ('回到总览失败：停在 ' + [string]$script:page) }
+    $navMissing = @()
+    foreach ($g in $script:games) { if (-not $script:navBtns[[string]$g]) { $navMissing += [string]$g } }
+    if ($navMissing.Count) { $bad += ('导航里缺这些模块：' + ($navMissing -join ' , ')) }
+    if (-not $script:navBtns['all']) { $bad += '导航里没有"总览"这一条' }
+    Write-Host ('导航项: ' + (($script:navBtns.Keys | Sort-Object) -join ' / ') + '   页: ' + (Get-PanelPageTitle -Page $script:page))
+    $all = @(Get-PanelDescendants $script:form)   # 切过一轮页，卡片里的行已经换过一批，后面量宽度要用新的
     <# 文字放不放得下：Label 开了 AutoEllipsis，超宽只会安静地变成省略号，肉眼以外没人发现(以前就发生过)。
        这里按"量的宽度 > 控件宽度"报出来 —— 只报，不计红项：别的机器缺中文字体时回退字宽不一样，
        拿它当硬闸门会把导出验收链误伤成"面板坏了"。 #>
@@ -1013,7 +1288,7 @@ if ($SelfTest) {
     foreach ($x in $wide) { Write-Host ('  偏长 ' + $x) }
     Write-Host ('重定向文件(带 PID，避免开机重播上一轮): ' + [System.IO.Path]::GetFileName($script:outPath) + ' / ' + [System.IO.Path]::GetFileName($script:errPath))
     if ($bad.Count) { foreach ($x in $bad) { Write-Host ('  布局问题 ' + $x) } }
-    Write-Host ('布局自检: ' + $(if ($bad.Count) { '有问题(见上)' } else { 'OK，控件不重叠、都在各自容器内、四张卡片都有内容' }))
+    Write-Host ('布局自检: ' + $(if ($bad.Count) { '有问题(见上)' } else { 'OK，每一页都不重叠、都在各自容器内、四张卡片都有内容' }))
     $script:form.Dispose()
     if ($bad.Count -or $miss.Count) { Write-Host 'panel -SelfTest 有红项。' -ForegroundColor Red; exit 1 }
     exit 0
