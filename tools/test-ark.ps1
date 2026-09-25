@@ -359,7 +359,11 @@ if (Get-Command Get-GdArkDesktopState -ErrorAction SilentlyContinue) {
     Check '桌面名读不到时 Locked 给"不知道"而不是"锁屏了"' (
         ($null -eq $st.Locked) -or ($st.Locked -eq ($st.Desktop -ne 'Default'))) "Desktop=[$($st.Desktop)] Locked=$($st.Locked)"
     Check '没给窗口句柄时明说"端游窗口没找到"' ($st.Detail -match '端游窗口没找到')
-    Check '探测顺手记下光标位置(判"这一轮鼠标进不进得来"的现场量)' ($st.Detail -match '光标在 ') $st.Detail
+    # 光标位置在"会话不在正常输入桌面"(锁屏 / Screen-saver 桌面)时本来就读不到 —— 那种情况下探测会明说
+    # "会话不在正常桌面"，这算它说对了，不该记红。这套自检标榜"只读、不启动任何程序"，
+    # 所以它也不能要求"跑的时候屏幕是亮着没锁的"(2026-09-25 验收链就在锁屏的机器上红过这一条)。
+    Check '探测顺手记下光标位置(判"这一轮鼠标进不进得来"的现场量)；不在正常桌面时改成说清为什么读不到' (
+        $st.Detail -match '光标在 ' -or ($st.Desktop -ne 'Default' -and $st.Detail -match '不在正常桌面')) $st.Detail
     $fnGrab = (Get-Command Invoke-GdArkForegroundGrab).Definition
     $typeDef = (Get-Command Add-GdRescueTypeDef).Definition
     Check '桌面名走 OpenInputDesktop + UOI_NAME，用完关掉句柄' (

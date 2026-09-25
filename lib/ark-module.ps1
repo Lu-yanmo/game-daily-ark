@@ -3,7 +3,7 @@
 # 这份文件只做两件事：① 声明这一路的元数据(要不要管理员、要催哪几条路径、提示语里的参数名)；
 # ② 把现有函数接成框架那套统一签名的钩子。业务逻辑仍然全在
 # lib\maa.ps1 / ark-decisions.ps1 / ark-daily.ps1 / ark-status.ps1 里，这里一个字都没搬 ——
-# 所以 test-ark.ps1 那 126 条断言仍然是这一路的回归保护网，本文件不构成第二套实现。
+# 所以 test-ark.ps1 那 139 条断言仍然是这一路的回归保护网，本文件不构成第二套实现。
 #
 # 装载：lib\modules.ps1 的 Import-GdModules 按 lib\*-module.ps1 扫到它并 dot-source，
 # 注册进 $global:GdModules。这棵树上没有 lib\maa.ps1 时它虽然会被注册，但
