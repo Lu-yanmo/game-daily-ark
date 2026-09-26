@@ -62,6 +62,27 @@ Register-GdModule ([pscustomobject]@{
             Ack       = { param($S) Set-GdArkAck -S $S }
             ShopState = { param($S, $Done) Set-GdArkShopState -S $S -Done:([bool]$Done) }
 
+            # ---- 监督 agent(lib\supervisor.ps1)的可选钩子：给了才监督，重启钩子给了才允许干预。----
+            SupervisorEvidence = {
+                param($S)
+                $P = Get-MaaPaths -S $S
+                return @{
+                    AssistantProc = $P.Name      # MAA 本体进程名
+                    AssistantLog  = $P.GuiLog   # 新鲜度按 gui.log(和主流程同一本)
+                    GameProc      = [System.IO.Path]::GetFileNameWithoutExtension($S.paths.arknightsExe)
+                    DonePattern   = '任务已全部完成'   # 和 Invoke-MaaRun 认的是同一条完成线
+                }
+            }
+            SupervisorRestart = {
+                param($S)
+                # 拉起方式和主流程逐字相同(Start-Process Exe，MAA 配置里"启动即开队列")，
+                # 所以干预的语义 = "当它自己重开了一遍"，风险是多跑，不是乱点。
+                $P = Get-MaaPaths -S $S
+                Stop-GdProcessTree -Name $P.Name
+                Start-Process -FilePath $P.Exe -WorkingDirectory $P.Dir | Out-Null
+                return $true
+            }
+
             # ---- status.ps1 那套(只读体检)。这几个是"可选钩子"：清单里没写的段，外壳整段跳过，
             #      等价于拆分前的 Test-GdFunc 'Get-GdArkEnvRows' 探测，只是问题从"函数在不在"
             #      变成了"这一路有没有声明它要出现在体检的哪几段"。----
