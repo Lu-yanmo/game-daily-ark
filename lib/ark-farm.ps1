@@ -328,10 +328,50 @@ function Get-GdArkFarmTargetsNormalized {
     return $out
 }
 
+function Sync-GdArkFarmHaveFromDepot {
+    <# 判缺口之前把 farmTargets 里材料的"现有量"用 MAA 仓库缓存(data\DepotData.json)实时刷一遍(2026-09-26)。
+       规矩只有一条：缓存文件比自家账本新才采信 —— 账本吃的是全量 (+N) 增量，缓存比它旧时
+       采信会把增量清零、反向多刷。缓存里没有该材料 = 同步那次是 0。
+       只改内存里的 $Led 并回一句说明，不写盘(写盘留给收尾的 Update-GdArkFarmLedger)。 #>
+    param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Targets, [Parameter(Mandatory)]$NameToId, [Parameter(Mandatory)]$Led)
+    $wantIds = @()
+    foreach ($t in @($Targets)) {
+        if ([string]$t.Bad) { continue }
+        $id = ''
+        if ($t.Key -match '^\d{3,8}$') { $id = $t.Key }
+        elseif ($NameToId.ContainsKey($t.Key)) { $id = [string]$NameToId[$t.Key] }
+        if ($id -and ($wantIds -notcontains $id)) { $wantIds += $id }
+    }
+    if (-not $wantIds.Count) { return '' }
+    $depot = Join-GdPath $S.paths.maaDir @('data', 'DepotData.json')
+    if (-not (Test-GdPathReady $depot)) { return '' }
+    $invPath = Get-GdArkFarmInventoryPath
+    if ((Test-Path -LiteralPath $invPath) -and
+        (Get-Item -LiteralPath $depot).LastWriteTime -le (Get-Item -LiteralPath $invPath).LastWriteTime) { return '' }
+    $d = $null
+    try { $d = Read-GdJson -Path $depot } catch { return '' }
+    if (-not $d -or -not $d.data) { return '' }
+    $bits = @()
+    foreach ($id in $wantIds) {
+        $c = 0
+        $v = Get-GdMapValue $d.data $id
+        if ($v) { [void][int]::TryParse([string]$v, [ref]$c) }
+        $old = -1
+        if ($Led.Inventory.byId.ContainsKey($id)) { $old = [int]$Led.Inventory.byId[$id] }
+        if ($old -ne $c) {
+            $Led.Inventory.byId[$id] = $c
+            $Led.Inventory.origin[$id] = 'depot'
+            $bits += "id=$id 现值 $old→$c"
+        }
+    }
+    if (-not $bits.Count) { return '' }
+    return "库存缓存比账本新，已按实时读数纠偏：" + ($bits -join '；')
+}
+
 function Resolve-GdArkFarmDecision {
     <# 活层：把 settings/账本/MAA 两张表都读出来喂给纯判定。返回方案或 $null(功能关了)。
        -Dedicated(=-FarmArk 专用轮)时活动确认门不适用：材料本不吃活动代币；
-       顺带档只在长草(idle)方案上追加 —— 活动期理智金贵，不去挤活动代币的位。 #>
+       需求优先档(farmAppend)只在长草(idle)方案上生效 —— 活动期理智金贵，不去挤活动代币的位。 #>
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Decision, [switch]$Dedicated)
 
     if (-not $Dedicated -and $S.ark.farmAppend -eq $false) { return $null }
@@ -339,11 +379,14 @@ function Resolve-GdArkFarmDecision {
 
     $maps = Get-GdArkItemMaps -S $S
     $led = Read-GdArkFarmLedger -S $S
+    $targetsNorm = @(Get-GdArkFarmTargetsNormalized -S $S)
+    $syncNote = Sync-GdArkFarmHaveFromDepot -S $S -Targets $targetsNorm -NameToId $maps.NameToId -Led $led
+    if ($syncNote) { Write-GdLog "补刷纠偏：$syncNote" }
     $known = @{}
     foreach ($k in @(Get-GdStageTable -S $S).Keys) { $known[$k] = $true }
     $mt = 12; [void][int]::TryParse([string]$S.ark.farmMaxTimesPerRound, [ref]$mt)
 
-    $fp = Resolve-ArkFarmPlan -Targets (Get-GdArkFarmTargetsNormalized -S $S) `
+    $fp = Resolve-ArkFarmPlan -Targets $targetsNorm `
         -NameToId $maps.NameToId -IdToName $maps.IdToName `
         -Inventory $led.Inventory.byId -Origin $led.Inventory.origin `
         -DropTable $led.DropTable -KnownStages $known -MaxTimes $mt

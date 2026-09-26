@@ -1,4 +1,15 @@
 ﻿# lib/maa.ps1 — 配置并驱动 MAA(明日方舟端游 / Win32 控制器)
+#
+# ── 冻结(2026-09-26，PS→C# 批次 3)────────────────────────────────────────────
+# 本体已迁到 tools\panel-cs\Processes.cs(契约见 docs\ps-migration-batch0.md)：
+#   Get-MaaAsstStuckState → verb parse-asst-state(四个"当前状态"的抠法在 C#；inject 只反映滑基建的老教训也在那)
+#   Get-MaaAsstStuckHint  → verb parse-asst-hint(线索话术整句在 C#)
+#   Set-MaaDailyConfig 的规则段 → verb plan-maa-queue(队列开关/关卡校验/farm 两档九项/ExpectedChains
+#       的 Select-Object -Unique 大小写敏感去重，全部在 C#；本壳保留：在跑检查、读写盘、备份、回读核对、日志染色)
+# 所以：改规则/文案请改 Processes.cs 并跑 tools\probe-process-golden.ps1 对拍，不要在这里加规则。
+# 故意留在 PS 侧的：Get-MaaPaths(读配置)、Invoke-MaaRun/Start-GdArkClient/Stop-MaaAndGame
+# (起进程、轮询、视觉兜底、进程树收尾 —— 归批次 5 编排层)。
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Get-MaaPaths {
     param([Parameter(Mandatory)]$S)
@@ -15,62 +26,33 @@ function Get-MaaPaths {
 }
 
 function Get-MaaAsstStuckState {
-    <# 把 asst.log 片段里那四个"当前状态"抠出来：卡在哪个子任务、重试了几次、点击行数、注入行数。
-       为什么要单独一个函数：判定要的是数字(重试到第几次才算卡住)，说话要的是句子，两者得用同一份事实。
-       注意 inject_input_event **不是**"点击通道活没活"的指标 —— 2026-09-25 早上把整份 asst.log 按动作归类数过：
-       全部 2001 次注入都来自同一个子任务 `SwipeToTheLeft`(action=Swipe，基建向左滑那一屏)，
-       而 7640 次 ClickSelf / 719 次 ClickRect 一条注入都没有 —— 点击从头到尾都走配置里的发消息方式。
-       所以这个计数只说明"这一轮有没有滑过基建"，别拿它推断点得动还是点不动。
-       纯字符串处理、不碰文件，方便单独断言。 #>
+    <#
+      转发壳(parse-asst-state)：四个"当前状态"的抠法与 inject≠点击通道的实测教训都在 Processes.cs 注释里。
+      返回形状保持旧 hashtable @{Task;Exec;Clicks;Inject}(Invoke-MaaRun 直接按键取用)。
+      空文本壳内早退：轮询里这是高频路径，别为空串起进程。
+    #>
     param([string]$Text)
-    $r = @{ Task = ''; Exec = 0; Clicks = 0; Inject = 0 }
-    if ([string]::IsNullOrWhiteSpace($Text)) { return $r }
-    foreach ($line in ($Text -split "`r?`n")) {
-        # 卡住时整段日志都在同一个任务上循环，所以"最后一次出现的"就是当前值，不用配对
-        if ($line -match '"cur_task":"([^"]+)"') { $r.Task = $Matches[1] }
-        if ($line -match '"exec_times":(\d+)') { $r.Exec = [int]$Matches[1] }
-        if ($line -match 'Win32Controller click:\s*\(') { $r.Clicks++ }
-        if ($line -match 'Win32Controller::inject_input_event \| enter') { $r.Inject++ }
-    }
-    return $r
+    if ([string]::IsNullOrWhiteSpace($Text)) { return @{ Task = ''; Exec = 0; Clicks = 0; Inject = 0 } }
+    $d = Invoke-GdCli -Verb 'parse-asst-state' -Body ([pscustomobject]@{ text = [string]$Text })
+    return @{ Task = [string]$d.Task; Exec = [int]$d.Exec; Clicks = [int]$d.Clicks; Inject = [int]$d.Inject }
 }
 
 function Get-MaaAsstStuckHint {
     <#
-      从 asst.log(MAA 的内核日志，比 gui.log 细几个数量级)里挑出"此刻卡在哪个子任务、重复了多少次、最后点到哪"。
-      为什么要单独读它：MAA 卡住时 gui.log 可以整整 22 分钟一个字都不写，asst.log 却一直在刷 ——
-      只看 gui.log 的话，能报出来的只有"日志无输出"这种看不出所以然的话。
-      2026-09-24 18:00 / 09-25 06:00 两轮都是这样：真凭据在 asst.log 里，StartUp@GameStart 的 exec_times 一路涨到 311，
-      每 4 秒往同一个矩形里点一下、模板分数始终 0.99 → 点击全数落空。
-      这句话先后被写过两种"原因"，都不成立：一是"splash 上叠了个中秋窗口"(视觉兜底拍到的是登录界面、没有窗口)；
-      二是"MAA 抢不到前台退化成 PostMessage 而端游不吃"(数错了我自己：注入只来自基建左滑，点击一直是发消息，
-      有人在机器前的成功轮也一样)。所以现在只说被证据撑住的部分：反复点同一处、界面不推进，两种可能都留着。
+      转发壳(parse-asst-hint)：从 asst.log 挑"卡在哪个子任务、重复多少次、最后点到哪"的话术本体在 Processes.cs，
+      为什么要单独读 asst.log、以及两句被推翻的错结论(中秋窗口/PostMessage 退化)也记在那边注释里 —— 别加回来。
     #>
     param([string]$Text)
     if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
-    $st = Get-MaaAsstStuckState -Text $Text
-    $task = $st.Task; $exec = $st.Exec; $click = ''
-    foreach ($line in ($Text -split "`r?`n")) {
-        if ($line -match 'Win32Controller click:\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)') { $click = "$($Matches[1]),$($Matches[2])" }
-    }
-    if (-not $task) { return '' }
-    $bits = @("MAA 内核其实还在跑")
-    if ($exec -ge 3 -and $click) {
-        # 反复点同一处才是"没被吃进去"的特征；只点了一两次不算，别把正常推进中的子任务说成卡住
-        $bits += "卡在子任务 $task，已重复 $exec 次(最后点到 $click)"
-        $bits += '同一处反复点击而界面不动 → 端游没把这些点击吃进去：要么真有个 MAA 不认识的窗口挡着，要么这一轮窗口不在前台/会话被锁(有人在机器前时，同样的发消息点击是点得动的)'
-    } elseif ($exec -ge 3) {
-        $bits += "卡在子任务 $task，已重复 $exec 次"
-    } else {
-        $bits += "最后停在子任务 $task"
-    }
-    return $bits -join '，'
+    $d = Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = [string]$Text })
+    return [string]$d.Hint
 }
 
 function Set-MaaDailyConfig {
     <#
       按今天的判定结果改写 MAA 的队列开关；写前备份、写后回读校验。
       MAA 必须在运行外部关闭状态才能改(否则退出时会被覆盖)。
+      转发壳(plan-maa-queue)：规则段本体在 Processes.cs，这里只剩现场检查/读写盘/回放日志/回读核对。
     #>
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Decision, [switch]$Apply)
 
@@ -83,105 +65,48 @@ function Set-MaaDailyConfig {
     if (-not (Test-Path -LiteralPath $P.Config)) { throw "MAA 配置不存在：$P.Config" }
 
     $cfg = Read-GdJson -Path $P.Config
-    $root = $cfg.Configurations.Default
-    if (-not $root) { throw 'MAA 配置里找不到 Configurations.Default，请检查 MAA 版本/实例名' }
 
-    $changes = @()
-    $startup = $root.Gui.StartUpSettings
-    if ($startup.RunDirectly -ne $true) {
-        if ($Apply) { $startup.RunDirectly = $true }
-        $changes += 'StartUpSettings.RunDirectly = true(启动后自动开始)'
-    }
-
-    $wantFinish = [string]$S.ark.finishAllSanityWith        # 默认"剩余理智"
-    $runtime = $root.Gui.RuntimeSettings
-    if ($S.runtime.launchArkFromHelper -and $runtime.StartGame -ne $false) {
-        if ($Apply) { $runtime.StartGame = $false }
-        $changes += 'RuntimeSettings.StartGame = false(端游改由日常脚本先拉起来，MAA 没存端游路径)'
-    }
-    $keepOn = @($S.ark.keepQueuesEnabled)
-    $turnOff = @($S.ark.disableQueues)
-    $stageList = @((([string]$Decision.Stage) -split '[,，、;；\s]+' | Where-Object { $_ }))
-    $stageText = $stageList -join ','
-    if (-not $stageList.Count) { throw '理智计划为空：检查 settings.ark.defaultStage / planByWeekday' }
-    $chk = Test-GdStages -S $S -StageText $stageText
-    if ($chk.Bad.Count) {
-        if ($Decision.Mode -eq 'idle') { throw "长草计划里的关卡代号不被 MAA 识别：$($chk.Bad -join ', ') → 请改 settings.json 的 ark 计划" }
-        Write-GdLog "活动关卡 $($chk.Bad -join ', ') 还不在 MAA 本地关卡表(资源可能没更到)，仍按接口结果写入" -Level WARN
-    }
-    Write-GdLog "理智计划 $stageText($($chk.Note))"
-    $expected = @()
-
-    $queue = @($root.TaskQueue)
-    if ($queue.Count -eq 0) { throw 'MAA 配置里的 TaskQueue 为空或结构不认识(预期为数组)' }
     <#
-      材料补刷(ark-farm)的两档在这里分野：
-        append(日常顺带) —— 关卡已由 ark-daily 拼进 Decision.Stage，MAA 侧什么都不多开(下面按老样子压关)，
-                            止损靠理智本身；
-        dedicated(-FarmArk 专用轮) —— StagePlan 整条就是 farm 关，这里额外打开 MAA 的
-                            「指定材料刷到 N(按本次出击掉落计数)」+「刷取次数上限」双保险。
-                            语义就算 MAA 哪天改了，最坏也只是这一轮理智的事，不会跨轮失控。
+      规则段整段递给 plan-maa-queue(开关怎么算/farm 两档九项/关卡校验/去重口径全在 Processes.cs)。
+      账本口径(farm 缺口、场次)在壳这侧从 Decision.Farm 抠成平铺参数 —— verb 不认 Decision 的形状。
     #>
     $farmPlan = Get-GdMapValue $Decision 'Farm'
-    $farmDedicated = ([string](Get-GdMapValue $Decision 'FarmMode') -eq 'dedicated') -and $farmPlan -and [bool](Get-GdMapValue $farmPlan 'Active')
-    $intent = [ordered]@{}
-    foreach ($q in $queue) {
-        if (-not $q) { continue }
-        $type = [string]$q.TaskType
-        $name = [string]$q.Name
-        $target = $q.IsEnable
+    $farmActive = [bool]($farmPlan -and [bool](Get-GdMapValue $farmPlan 'Active'))
+    $farmMode = [string](Get-GdMapValue $Decision 'FarmMode')
+    $d = Invoke-GdCli -Verb 'plan-maa-queue' -Body ([pscustomobject]@{
+        config              = $cfg
+        wantFinish          = [string]$S.ark.finishAllSanityWith
+        alsoEnableMainFight = [bool]$S.ark.alsoEnableMainFight
+        launchArkFromHelper = [bool]$S.runtime.launchArkFromHelper
+        keepOn              = @($S.ark.keepQueuesEnabled)
+        turnOff             = @($S.ark.disableQueues)
+        table               = (Get-GdStageTable -S $S)
+        mode                = [string]$Decision.Mode
+        clearSanity         = [bool]$Decision.ClearSanity
+        stage               = [string]$Decision.Stage
+        farmActive          = $farmActive
+        farmMode            = $farmMode
+        farmItemId          = $(if ($farmPlan) { [string](Get-GdMapValue $farmPlan 'ItemId') } else { '' })
+        farmGap             = $(if ($farmPlan) { [int](Get-GdMapValue $farmPlan 'Gap') } else { 0 })
+        farmTarget          = $(if ($farmPlan) { [int](Get-GdMapValue $farmPlan 'Target') } else { 0 })
+        farmTimes           = $(if ($farmPlan) { [int](Get-GdMapValue $farmPlan 'Times') } else { 0 })
+    })
 
-        if ($type -in $turnOff) { $target = $false }
-        elseif ($type -eq 'Fight') {
-            if (-not $Decision.ClearSanity) { $target = $false }          # 活动未确认 / 只跑非战斗部分
-            elseif ($name -eq $wantFinish) { $target = $true }
-            elseif ($S.ark.alsoEnableMainFight -and $name -notmatch '剩余') { $target = $true }
-            else { $target = $false }
-        }
-        elseif ($type -in $keepOn) { $target = $true }
-        $target = [bool]$target
-
-        if ([bool]$q.IsEnable -ne $target) {
-            $changes += "$name → IsEnable=$target"
-            if ($Apply) { $q.IsEnable = $target }
-        }
-
-        if ($type -eq 'Fight' -and $target) {
-            if (@($q.StagePlan) -join ',' -ne $stageText) {
-                $changes += "$name → StagePlan = $stageText"
-                if ($Apply) { $q.StagePlan = [string[]]$stageList }
-            }
-            if ($farmDedicated) {
-                # 双保险：DropCount=缺口(按本次出击掉落到数停) + TimesLimit=算出来的场次(封顶护栏)。
-                # IsInventoryTarget 故意按 false —— 不让 MAA 拿它自己的库存口径参与缺口判定，那本账在我们的 state 里。
-                $want = [ordered]@{
-                    EnableTargetDrop = $true; DropId = [string]$farmPlan.ItemId; DropCount = [int]$farmPlan.Gap; IsInventoryTarget = $false
-                    EnableTimesLimit = $true; TimesLimit = [int]$farmPlan.Times
-                    UseMedicine = $false; UseStone = $false; UseExpiringMedicine = $false
-                }
-                foreach ($k in @($want.Keys)) {
-                    if ($q.$k -ne $want[$k]) {
-                        $changes += "$name → $k = $($want[$k])(材料补刷专用轮)"
-                        if ($Apply) { $q.$k = $want[$k] }
-                    }
-                }
-            } else {
-                foreach ($flag in @('UseMedicine', 'UseStone', 'UseExpiringMedicine', 'EnableTargetDrop', 'EnableTimesLimit')) {
-                    if ($q.$flag -ne $false) {
-                        $changes += "$name → $flag = false"
-                        if ($Apply) { $q.$flag = $false }
-                    }
-                }
-            }
-        }
-        $intent[$name] = $target
-        if ($target) { $expected += $type }
+    <# 旧实现里"活动关卡不在表里(WARN)/理智计划(INFO)"两句是算规则时顺手打的，现在随 Logs 数组按序回放 #>
+    foreach ($l in @($d.Logs)) {
+        $lvl = [string]$l.Level
+        if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog ([string]$l.Text) -Level $lvl } else { Write-GdLog ([string]$l.Text) }
     }
+    $changes = @(foreach ($c in @($d.Changes)) { [string]$c })
+    $expected = @(foreach ($c in @($d.ExpectedChains)) { [string]$c })
+    $stageText = [string]$d.Stage
 
     if ($Apply -and $changes.Count -gt 0) {
+        <# 写盘的就是 C# 改好的树(NewConfig)；回读核对留在壳里 —— 写失败/被 MAA 覆盖要立刻报警，这条纪律不过夜 #>
         $bak = Backup-GdFile -Path $P.Config
-        Write-GdJson -Path $P.Config -Object $cfg
-        # 回读逐项核对，写盘失败/被 MAA 覆盖时立刻报警
+        Write-GdJson -Path $P.Config -Object $d.NewConfig
+        $intent = [ordered]@{}
+        foreach ($i in @($d.Intent)) { $intent[[string]$i.Name] = [bool]$i.Enable }
         $verify = Read-GdJson -Path $P.Config
         $bad = @()
         foreach ($q in @($verify.Configurations.Default.TaskQueue)) {
@@ -197,7 +122,7 @@ function Set-MaaDailyConfig {
     return [pscustomobject]@{
         Path = $P.Config
         Changes = $changes
-        ExpectedChains = @($expected | Select-Object -Unique)
+        ExpectedChains = $expected
         Stage = $stageText
         Applied = [bool]$Apply
     }

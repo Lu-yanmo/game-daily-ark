@@ -72,12 +72,15 @@ function Resolve-GdArkDecision {
             $ark | Add-Member -NotePropertyName FarmMode -NotePropertyValue ''
         }
     } elseif ($farmOpt) {
-        # 顺带档：把 farm 关并进长草计划尾部(去重)，farm 关掉不进活动/manual
+        # 需求优先档(2026-09-26 改)：farm 关排进理智计划最前(去重)，长草关在后 ——
+        # MAA 的「剩余理智」按 StagePlan 顺序轮换，排最前=当天理智先保证缺口材料。
+        # 停止不靠计划位置：接线层(maa.ps1)同时打开 MAA 原生「目标库存」计数，凑够即停。farm 关掉不进活动/manual。
         $base = @((([string]$ark.Stage) -split '[,，、;；\s]+' | Where-Object { $_ }))
-        $merged = @($base)
+        $merged = @()
         foreach ($st in @($farmOpt.Stages)) { if ($merged -notcontains $st) { $merged += $st } }
+        foreach ($st in $base) { if ($merged -notcontains $st) { $merged += $st } }
         $ark | Add-Member -NotePropertyName Stage -NotePropertyValue ($merged -join ',') -Force
-        $ark | Add-Member -NotePropertyName Reason -NotePropertyValue "$($ark.Reason)；顺带 $($farmOpt.Reason)" -Force
+        $ark | Add-Member -NotePropertyName Reason -NotePropertyValue "$($ark.Reason)；需求优先 $($farmOpt.Reason)" -Force
         $ark | Add-Member -NotePropertyName Farm -NotePropertyValue $farmOpt
         $ark | Add-Member -NotePropertyName FarmMode -NotePropertyValue 'append'
     }
