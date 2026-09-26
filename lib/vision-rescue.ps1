@@ -1,351 +1,147 @@
-﻿# lib/vision-rescue.ps1 — 「卡住了就把画面交给视觉模型」这一路兜底
+﻿# lib/vision-rescue.ps1 — 「卡住了就把画面交给视觉模型」这一路兜底里**与后端无关**的那半
 #
-# 为什么要有它：MAA 只认自己模板集里的东西。端游 splash 上叠一个它没见过的新活动弹窗
-# (2026-09-24 那个中秋节活动窗口就是)，它会一直在原地点 START —— asst.log 里 exec_times
-# 从 1 涨到 316、模板分数始终 0.99， gui.log 却整整 22 分钟一个字不写。
+# 为什么要有它：模板匹配只认自己集里的东西。端游 splash 上叠一个它没见过的新活动弹窗
+# (2026-09-24 那个中秋节活动窗口就是)，MAA 会一直在原地点 START —— asst.log 里 exec_times
+# 从 1 涨到 316、模板分数始终 0.99，gui.log 却整整 22 分钟一个字不写。
 # 人眼一看就知道「先把弹窗关掉」，模板匹配永远看不到这一步 → 这一步交给视觉模型。
+# 2026-09-26 起 1999 那一路(MuMu + M9A)也接上了：卡在更新界面/弹窗上同样是"人眼一看就知道"。
 #
-# 边界(故意收得很紧)：
-#   * 只在异常路径被调用(lib\maa.ps1 判到停滞之后)，正常一轮**一个 API 请求都不会发**；
+# 分工：本文件只管"问模型 → 抠 JSON → 换算点位 → 点一下 → 确认画面真的变了"。
+# 它不认识端游，也不认识模拟器 —— 截图和点击都向一个"靶子"(target)要，靶子由那一路的后端文件给：
+#   lib\vision-ark.ps1   → New-GdVisionTarget-ark    (PrintWindow 拍窗口 + 抢前台真实点击)
+#   lib\vision-mumu.ps1  → New-GdVisionTarget-mumu   (adb screencap/pull 拍屏 + adb input tap)
+# 于是方舟仓库只带 ark 那一份、1999 仓库只带 mumu 那一份，本文件两边共用
+# (归属表见 tools\publish-split.ps1；两份模块清单都列了它，Get-GdModuleLibPaths 按名字去重、只点一次)。
+#
+# 第三层：问模型这件事本身(HTTP)交给 tools\vision\ask.py，由 Invoke-GdVisionRaw 起子进程跑它。
+# 为什么单拎出去：Invoke-RestMethod 把"超时/连不上/key 不对/端点写错/被限流"揉成同一句 WebException，
+# 而兜底要回答的正是"这次没问成，该改哪儿"；Python 侧按状态分好类、429/5xx 还会退避重试。
+# **搬走的只有发请求**：解析回复、换算点位、判断能不能点仍然在这个文件里 —— 那部分是安全边界，
+# 有 tools\test-ark.ps1 的断言盯着，不跟着 HTTP 一起搬家。解释器怎么找见 lib\common.ps1 的 Get-GdPythonExe。
+# key 只经环境变量给子进程：不进命令行、不进请求文件、不进日志、不进诊断包。
+#
+# 后端怎么找：Get-GdVisionTarget 按 `New-GdVisionTarget-<kind>` 这个命名约定 Get-Command 探路，
+# 找不到就返回 $null → 调用方拿到一句"这棵树上没有这一路的兜底后端"。
+# 和 lib\maa.ps1 里 `Get-Command Invoke-GdVisionRescue` 同一套纪律：**不靠导出时改写源码**。
+#
+# 靶子必须提供什么(契约写在这里，后端文件照着实现)：
+#   Kind / Name            后端名 + 日志里"已拍 X"的那个 X
+#   Enabled / Why          这一路自己的开关；关掉时那句原因必须带 settings 里的键名(t13 按它断言)
+#   NeedsAdmin / AdminWhy  点这一路要不要提权(端游要，模拟器不要)
+#   Scene / UserText       提示词开头"这是什么画面"的文案 —— 判定与点位算法对此完全无感
+#   Alive                  scriptblock：对象现在还在不在(窗口关了 / 虚拟机没起来)
+#   Shot(-Path)            scriptblock：拍一张 → @{Ok;Path;ImgW;ImgH;ClientLeft;ClientTop;ClientW;ClientH;AvgLum;Sig;Hash;Why}
+#   Click(-X,-Y)           scriptblock：往换算后的坐标点一下 → @{Mode;Sent}
+#   Grab / Desktop         可选(端游那套"抢前台 + 现场状态")；模拟器给 $null，本文件不调它
+#
+# 边界(故意收得很紧，两路共用)：
+#   * 只在异常路径被调用(判定层认为卡住之后)，正常一轮**一个 API 请求都不会发**；
 #   * 只让它「关掉挡路的东西」，明确禁止它点领取/前往参与/确定这类会把号往活动里带的按钮；
-#   * 一轮最多救 visionMaxRescue 次，每次只点 1 下，点完必须看到画面变了才算数；
-#   * 拿不到 key / 没提权 / 截图是黑的 → 说明原因后直接放弃，绝不硬猜。
+#   * 一轮最多救 visionMaxRescue 次(次数归调用方管)，每次只点 1 下，点完必须看到画面变了才算数；
+#   * 拿不到 key / 后端前置条件不满足 / 截图是黑的 → 说明原因后直接放弃，绝不硬猜。
 #
-# 权限这条是硬要求：端游 Arknights.exe 的清单是 requireAdministrator，中完整性的进程
-# 对它 PostMessage 会返回 false、PrintWindow 也会失败(全都不报错，只是没反应)。
-# 计划任务那一路(RunLevel Highest)本来就是提权的，所以定时跑不受影响；
-# 手动跑别加 -NoElevate。
+# 端游那一路的权限硬要求(现在写在 lib\vision-ark.ps1)：Arknights.exe 的清单是 requireAdministrator，
+# 中完整性的进程对它 PostMessage 返回 false、PrintWindow 也失败(全都不报错，只是没反应)。
+# 计划任务那一路(RunLevel Highest)本来就有提权，所以定时跑不受影响；手动跑别加 -NoElevate。
 #
-# 依赖：调用方先点 lib\common.ps1。
-
-$global:GdRescueTypeDef = $false
-
-function Add-GdRescueTypeDef {
-    <# 只编译 P/Invoke 签名。Store 版 pwsh 7 里 Add-Type 一旦引用 System.Drawing 的类型就会
-       CS0012(找不到 System.Private.Windows.GdiPlus)直接编不过 —— 所以 Bitmap/Graphics 全留在
-       PowerShell 侧调，C# 这边只当 user32 的传声筒。 #>
-    if ($global:GdRescueTypeDef) { return }
-    Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-
-public struct GdRect { public int Left; public int Top; public int Right; public int Bottom; }
-public struct GdPoint { public int X; public int Y; }
-
-public static class GdWin
-{
-    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out GdRect r);
-    [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out GdRect r);
-    [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref GdPoint p);
-    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdcBlt, uint nFlags);
-    [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
-    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
-    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
-    [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr wParam, IntPtr lParam);
-    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int nCmdShow);
-    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
-    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-    [DllImport("user32.dll")] public static extern bool GetCursorPos(out GdPoint p);
-    [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, IntPtr dwExtraInfo);
-    [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, IntPtr dwExtraInfo);
-    [DllImport("user32.dll", SetLastError = true)] public static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesktopAccess);
-    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    public static extern bool GetUserObjectInformationW(IntPtr hObj, int nIndex, System.Text.StringBuilder pvInfo, uint nLength, out uint lpnLengthNeeded);
-    [DllImport("user32.dll")] public static extern bool CloseDesktop(IntPtr hDesktop);
-    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint lpdwProcessId);
-
-    public static GdRect WindowRect(IntPtr h)  { GdRect r; GetWindowRect(h, out r);  return r; }
-
-    // 下面三个都是"看一眼现场"的只读调用，给点击环境探测用：不动窗口、不点客户区、不动鼠标。
-    public static bool Visible(IntPtr h) { return IsWindowVisible(h); }
-    public static string CursorText()
-    {
-        GdPoint p;
-        if (!GetCursorPos(out p)) { return ""; }
-        return p.X + "," + p.Y;
-    }
-    public static string WindowRectText(IntPtr h)
-    {
-        GdRect r;
-        if (!GetWindowRect(h, out r)) { return ""; }
-        return r.Left + "," + r.Top + " " + (r.Right - r.Left) + "x" + (r.Bottom - r.Top);
-    }
-
-    // SW_RESTORE：把最小化的窗口放回来。掉线/MAA 收尾都会把端游最小化，那时
-    // GetWindowRect 给的是屏幕外那个占位矩形(-32000,-32000，168x29)，拍出来必然是空东西。
-    // 这是窗口状态调用，不是客户区输入，所以不会误点游戏里的按钮。
-    public static bool Restore(IntPtr h) { return ShowWindow(h, 9); }
-    public static GdRect ClientRect(IntPtr h)  { GdRect r; GetClientRect(h, out r);  return r; }
-
-    // 客户区左上角在屏幕上的位置：窗口位图(整窗) → 客户区坐标(PostMessage 要的那个)要靠它换算
-    public static GdPoint ClientOrigin(IntPtr h)
-    {
-        GdPoint p = new GdPoint(); p.X = 0; p.Y = 0;
-        ClientToScreen(h, ref p);
-        return p;
-    }
-
-    public static IntPtr PackClient(int x, int y)
-    {
-        // LPARAM = MAKELONG(x, y)：低 16 位 x、高 16 位 y(客户区坐标，不是屏幕坐标)
-        return (IntPtr)(int)(((uint)(y & 0xFFFF) << 16) | (uint)(x & 0xFFFF));
-    }
-
-    public static bool ClickOnce(IntPtr h, int x, int y)
-    {
-        // WM_NCHITTEST 那套不走，游戏客户端要的是客户区的鼠标消息：MOVE → DOWN(带 MK_LBUTTON) → UP
-        PostMessage(h, 0x0200, IntPtr.Zero, PackClient(x, y));          // WM_MOUSEMOVE
-        System.Threading.Thread.Sleep(120);
-        bool a = PostMessage(h, 0x0201, (IntPtr)0x0001, PackClient(x, y));   // WM_LBUTTONDOWN, wParam=MK_LBUTTON
-        System.Threading.Thread.Sleep(90);
-        bool b = PostMessage(h, 0x0202, IntPtr.Zero, PackClient(x, y));      // WM_LBUTTONUP
-        return a && b;
-    }
-
-    // 客户区坐标 → 屏幕坐标(真实鼠标只认屏幕坐标)
-    public static GdPoint ToScreen(IntPtr h, int clientX, int clientY)
-    {
-        GdPoint p = new GdPoint(); p.X = clientX; p.Y = clientY;
-        ClientToScreen(h, ref p);
-        return p;
-    }
-
-    public static GdPoint CursorPos() { GdPoint p; GetCursorPos(out p); return p; }
-
-    // 当前"接收鼠标键盘的那个桌面"叫什么：解锁时是 Default，锁屏/切到登录界面时是 Winlogon。
-    // 为什么读它：这是"真实点击到底进不进得来"最直接的判据，而且不需要管理员。
-    // OpenInputDesktop 只要 DESKTOP_READOBJECTS(0x0002)，UOI_NAME 是 2。拿不到名字返回空串(调用方按"不知道"处理)。
-    public static string InputDesktopName()
-    {
-        IntPtr h = OpenInputDesktop(0x0002, false, 0x0002);
-        if (h == IntPtr.Zero) { return ""; }
-        try
-        {
-            System.Text.StringBuilder sb = new System.Text.StringBuilder(256);
-            uint need = 0;
-            if (!GetUserObjectInformationW(h, 2, sb, 512, out need)) { return ""; }
-            return sb.ToString();
-        }
-        finally { CloseDesktop(h); }
-    }
-
-    public static IntPtr ForegroundWindow() { return GetForegroundWindow(); }
-
-    public static uint WindowPid(IntPtr h) { uint pid; GetWindowThreadProcessId(h, out pid); return pid; }
-
-    public static bool TryForeground(IntPtr h)
-    {
-        // 后台进程抢前台会被系统拒绝；先"按下 ALT"再抢是公认那招。抢不到就返回 false，
-        // 调用方必须改走别的路 —— 真实点击是打在"鼠标当前所在的那个窗口"上的，抢不到前台还点，
-        // 就等于在用户正在用的窗口里瞎点一下。
-        keybd_event(0x12, 0, 0, IntPtr.Zero);                 // VK_MENU down
-        if (IsIconic(h)) { ShowWindow(h, 9); }                 // SW_RESTORE：只在最小化时恢复，别把最大化也撤了
-        bool ok = SetForegroundWindow(h);
-        keybd_event(0x12, 0, 2, IntPtr.Zero);                 // VK_MENU up(KEYEVENTF_KEYUP)
-        System.Threading.Thread.Sleep(350);                    // 等系统真的把焦点换过来
-        return ok && (GetForegroundWindow() == h);
-    }
-
-    public static bool RealClick(int screenX, int screenY)
-    {
-        // 真实鼠标：光标移过去再按下/抬起，我们自己的兜底点击走这条。
-        // 注意别再把它说成"MAA 在这个端游上也是这么点的"：2026-09-25 把整份 asst.log 按动作归类数过，
-        // inject_input_event 全部来自基建左滑(SwipeToTheLeft)，7600 多次点击一条注入都没有 —— MAA 的点击
-        // 一直是配置里的发消息方式，而那种点击在有人在机器前时是点得动这个端游的。
-        if (!SetCursorPos(screenX, screenY)) { return false; } // 目标点在屏幕外/被裁掉了 → 别点
-        System.Threading.Thread.Sleep(120);
-        mouse_event(0x0002, 0, 0, 0, IntPtr.Zero);             // MOUSEEVENTF_LEFTDOWN
-        System.Threading.Thread.Sleep(90);
-        mouse_event(0x0004, 0, 0, 0, IntPtr.Zero);             // MOUSEEVENTF_LEFTUP
-        return true;
-    }
-}
-'@ -ErrorAction Stop
-    $global:GdRescueTypeDef = $true
-}
+# 依赖：调用方先点 lib\common.ps1。两份后端文件各点各的库，本文件不点它们。
 
 function Get-GdRescueShotDir { Join-Path $global:GD.State 'rescue' }
 
-function Get-GdArkWindow {
-    <# 找端游主窗口 → @{Handle;ProcId;Title}；没有返回 $null。用进程名匹配，不用窗口标题
-       (标题会随版本变，进程名跟着 paths.arknightsExe 走)。 #>
-    param([Parameter(Mandatory)]$S)
-    $name = [System.IO.Path]::GetFileNameWithoutExtension($S.paths.arknightsExe)
-    foreach ($p in @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
-            $_.MainWindowHandle -ne [IntPtr]::Zero -and $_.ProcessName -eq $name })) {
-        return [pscustomobject]@{ Handle = $p.MainWindowHandle; ProcId = $p.Id; Title = [string]$p.MainWindowTitle }
-    }
-    return $null
+function New-GdRescueSkip {
+    <# "这次没救成，原因是……"的统一出口：Tried=$false 表示连一次点击都没发出去 #>
+    param([string]$Why)
+    return [pscustomobject]@{ Tried = $false; Done = $false; Detail = $Why }
 }
 
-function Get-GdArkDesktopState {
-    <# 一句话回答"这一轮的点击环境长什么样"：输入桌面叫什么 + 端游窗口在不在前台 + 谁占着前台 + 窗口本身的状态。
-       为什么要记它：无人值守那几轮(06:00)失败得一模一样 —— MAA 每 4 秒往 splash 的 START 点一下、点了 311 下、
-       模板分始终 0.99、界面一步不动，而日志里没有当时"鼠标键盘到底进不进得来"的任何记录，事后只能猜。
-       被否掉的猜测有两个：一是"有个弹窗挡着"(视觉兜底当场拍到的是登录界面、没有窗口)；
-       二是"MAA 抢不到前台退化成 PostMessage 而端游不吃"(inject_input_event 其实全部来自基建左滑，
-       点击在成功轮里也一直是发消息 —— 见 lib\maa.ps1 的 Get-MaaAsstStuckState)。
-       剩下能分辨的就只有现场状态，所以把它一次记全：桌面名 / 前台归属 / 最小化 / 可见 / 窗口矩形 / 光标位置。
-       纯读，不动任何窗口，也不联网。 #>
-    param($Hwnd)
-    Add-GdRescueTypeDef
-    $desk = [string]([GdWin]::InputDesktopName())
-    $fg = [GdWin]::ForegroundWindow()
-    $onFg = ($Hwnd -and ($fg -ne [IntPtr]::Zero) -and ($fg -eq [IntPtr]$Hwnd))
-    $fgName = ''
-    try {
-        $fgPid = [uint32][GdWin]::WindowPid($fg)
-        if ($fgPid -gt 0) { $fgName = [string]((Get-Process -Id $fgPid -ErrorAction SilentlyContinue).ProcessName) }
-    } catch { $fgName = '' }
-    # 桌面名字读不到时按"不知道"处理，别把它说成"锁屏了"——OpenInputDesktop 在个别环境会被安全策略挡
-    $locked = if ($desk) { ($desk -ne 'Default') } else { $null }
-    $bits = @()
-    if (-not $desk) { $bits += '输入桌面=读不到(无法判断是否锁屏)' }
-    elseif ($locked) { $bits += "输入桌面=$desk(会话不在正常桌面，鼠标键盘进不来)" }
-    else { $bits += '输入桌面=Default(未锁屏)' }
-
-    if (-not $Hwnd) {
-        $bits += '端游窗口没找到'
-    } else {
-        if ($onFg) { $bits += '端游在前台=是' }
-        else {
-            $who = if ($fgName) { $fgName } else { '未知窗口' }
-            $bits += "端游在前台=否(前台是 $who)"
-        }
-        # 窗口自己这一侧的状态：锁屏时这几项往往还是"可见 + 正常矩形"，所以它是用来**排除**"窗口没了/最小化了"的
-        $st = @()
-        if ([GdWin]::IsIconic([IntPtr]$Hwnd)) { $st += '最小化' }
-        if (-not [GdWin]::Visible([IntPtr]$Hwnd)) { $st += '不可见' }
-        $rc = [string]([GdWin]::WindowRectText([IntPtr]$Hwnd))
-        if ($rc) { $st += $rc }
-        if ($st.Count) { $bits += "端游窗口状态=" + ($st -join '/') }
-    }
-    $cur = [string]([GdWin]::CursorText())
-    if ($cur) { $bits += "光标在 $cur" }
-
-    return [pscustomobject]@{
-        Desktop    = $desk
-        Locked     = $locked
-        GameOnFg   = [bool]$onFg
-        FgProcess  = $fgName
-        Cursor     = $cur
-        Detail     = $bits -join '；'
-    }
-}
-
-function Invoke-GdArkForegroundGrab {
-    <# 把端游窗口抢回前台(ALT hack)，只动窗口状态、不点客户区，所以不会误点游戏里的按钮。
-       抢不到就照实返回 false —— 调用方要么改走别的路，要么明确说"这一轮点不动"，别硬点。
-       成功与否都把现场状态带回 Detail：这一轮之后要不要早退，靠的就是这几个字。 #>
-    param([Parameter(Mandatory)]$S)
-    Add-GdRescueTypeDef
-    $w = Get-GdArkWindow -S $S
-    if (-not $w) { return @{ Ok = $false; Detail = '端游窗口没找到，抢前台无从谈起' } }
-    $ok = [GdWin]::TryForeground($w.Handle)
-    $st = Get-GdArkDesktopState -Hwnd $w.Handle
-    if ($ok) { $detail = "已把端游窗口抢到前台($($w.Title)) —— $($st.Detail)" }
-    else { $detail = "抢前台没成功 —— $($st.Detail)" }
-    return @{ Ok = [bool]$ok; Handle = $w.Handle; Detail = $detail }
-}
-
-function Save-GdWindowShot {
-    <# PrintWindow 抓某个窗口的**整窗**位图存成 PNG，顺带把客户区在位图里的偏移一起返回。
-       为什么不用截屏(CopyFromScreen)：那条要求窗口在前台、还不能被别的窗口压住，
-       无人值守时会把用户正在用的程序一起拍进去(排查时就拍到过用户的浏览器)。
-       PrintWindow 是直接把窗口自己画的内容要过来，MAA 用的截屏方式也是它(asst.log 里
-       ConnectionInfo 的 method 就是 PrintWindow)，所以这条在这台机器上是被证明可行的。
-       返回 @{Ok;Path;ImgW;ImgH;ClientLeft;ClientTop;ClientW;ClientH;AvgLum;Sig;Hash;Why} #>
+function Get-GdShotStats {
+    <# 从一张位图算两样东西：平均亮度(整屏黑的时候模型会一本正经地胡说八道，白花一次钱，所以在这里就拦掉)
+       + 16x9 的粗亮度签名(判"点完画面到底变没变")。
+       端游和模拟器的截图都走这里 → 两路的"变没变"用的是同一把尺子。
+       为什么不用文件哈希：端游背景有噪点动画，同一画面两次截图哈希都不一样
+       (2026-09-24 就是这么误判过一次"救活了")。 #>
     param(
-        [Parameter(Mandatory)][IntPtr]$Hwnd,
-        [Parameter(Mandatory)][string]$Path
+        [Parameter(Mandatory)]$Bmp,
+        [Parameter(Mandatory)][int]$W,
+        [Parameter(Mandatory)][int]$H,
+        [int]$Step = 7
     )
-    Add-GdRescueTypeDef
-    Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
-    if ([GdWin]::IsIconic($Hwnd)) {
-        Write-GdLog '端游窗口最小化中 → 先 SW_RESTORE 叫回来再拍' -Level WARN
-        [void][GdWin]::Restore($Hwnd)
-        Start-Sleep -Milliseconds 1500      # 给它一帧时间重绘，否则拍到的还是空位图
-    }
-    $wr = [GdWin]::WindowRect($Hwnd)
-    $w = $wr.Right - $wr.Left; $h = $wr.Bottom - $wr.Top
-    if ($w -lt 200 -or $h -lt 150) {
-        # 分开报：还是 168x29 就是"恢复没成功/又被最小化了"，别让人以为是窗口真坏了
-        $why = if ([GdWin]::IsIconic($Hwnd)) { "端游窗口仍最小化(拍不到东西) ${w}x${h}" } else { "窗口尺寸异常 ${w}x${h}" }
-        return [pscustomobject]@{ Ok = $false; Why = $why }
-    }
-    $bmp = $null; $g = $null
-    try {
-        $bmp = New-Object System.Drawing.Bitmap($w, $h, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-        $g = [System.Drawing.Graphics]::FromImage($bmp)
-        $hdc = $g.GetHdc()
-        # 2 = PW_RENDERFULLCONTENT：Win10 之后带 DirectComposition/硬件加速的窗口不加这个会拍成黑屏
-        $ok = [GdWin]::PrintWindow($Hwnd, $hdc, 2)
-        if (-not $ok) { $ok = [GdWin]::PrintWindow($Hwnd, $hdc, 0) }   # 老一点的窗口过程只认 0，再试一次
-        $g.ReleaseHdc($hdc)
-        if (-not $ok) { return [pscustomobject]@{ Ok = $false; Why = 'PrintWindow 返回 false(权限不够或窗口已关闭)' } }
-        # 平均亮度：整屏黑的时候模型会一本正经地胡说八道，白花一次钱，所以在这里就拦掉。
-        # 顺带算一张 16x9 的"粗亮度签名"：判"点完画面到底变没变"用它 —— 文件哈希不行，
-        # 端游背景有噪点动画，同一画面两次截图哈希都不一样(2026-09-24 就是这么误判过一次"救活了")。
-        $sum = 0L; $n = 0
-        $acc = New-Object 'int[]' 144; $cnt = New-Object 'int[]' 144
-        for ($y = 0; $y -lt $h; $y += 7) {
-            for ($x = 0; $x -lt $w; $x += 7) {
-                $c = $bmp.GetPixel($x, $y)
-                $l = [int](($c.R * 30 + $c.G * 59 + $c.B * 11) / 100)
-                $sum += $l; $n++
-                $gy = [int]($y / $h * 16); if ($gy -gt 15) { $gy = 15 }
-                $gx = [int]($x / $w * 9);  if ($gx -gt 8)  { $gx = 8 }
-                $k = $gy * 9 + $gx
-                $acc[$k] += $l; $cnt[$k]++
-            }
+    $sum = 0L; $n = 0
+    $acc = New-Object 'int[]' 144; $cnt = New-Object 'int[]' 144
+    for ($y = 0; $y -lt $H; $y += $Step) {
+        for ($x = 0; $x -lt $W; $x += $Step) {
+            $c = $Bmp.GetPixel($x, $y)
+            $l = [int](($c.R * 30 + $c.G * 59 + $c.B * 11) / 100)
+            $sum += $l; $n++
+            $gy = [int]($y / $H * 16); if ($gy -gt 15) { $gy = 15 }
+            $gx = [int]($x / $W * 9);  if ($gx -gt 8)  { $gx = 8 }
+            $k = $gy * 9 + $gx
+            $acc[$k] += $l; $cnt[$k]++
         }
-        $lum = [math]::Round($sum / [math]::Max(1, $n))
-        # /8 量化：把抗锯齿和噪点造成的 1~2 档抖动压掉，剩下的才是"这块区域真的换了内容"
-        $sig = for ($k = 0; $k -lt 144; $k++) { if ($cnt[$k]) { [int][math]::Round($acc[$k] / $cnt[$k] / 8) } else { 0 } }
-        $dir = Split-Path -Parent $Path
-        if ($dir -and -not (Test-Path -LiteralPath $dir)) { [void](New-Item -ItemType Directory -Path $dir -Force) }
-        $bmp.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
-        $co = [GdWin]::ClientOrigin($Hwnd)
-        $cr = [GdWin]::ClientRect($Hwnd)
-        return [pscustomobject]@{
-            Ok = $true; Path = $Path; ImgW = $w; ImgH = $h
-            ClientLeft = $co.X - $wr.Left; ClientTop = $co.Y - $wr.Top
-            ClientW = $cr.Right; ClientH = $cr.Bottom
-            AvgLum = $lum; Sig = ($sig -join ','); Hash = (Get-FileHash -LiteralPath $Path -Algorithm MD5).Hash; Why = ''
-        }
-    } catch {
-        return [pscustomobject]@{ Ok = $false; Why = "截图失败：$($_.Exception.Message)" }
-    } finally {
-        if ($g) { $g.Dispose() }
-        if ($bmp) { $bmp.Dispose() }
     }
+    # /8 量化：把抗锯齿和噪点造成的 1~2 档抖动压掉，剩下的才是"这块区域真的换了内容"
+    $sig = for ($k = 0; $k -lt 144; $k++) { if ($cnt[$k]) { [int][math]::Round($acc[$k] / $cnt[$k] / 8) } else { 0 } }
+    return [pscustomobject]@{ AvgLum = [math]::Round($sum / [math]::Max(1, $n)); Sig = ($sig -join ',') }
+}
+
+function Get-GdVisionTarget {
+    <# 靶子取号处：只做"按命名约定找函数"这一件事，所以本文件可以一个 ark/mumu 的字面量都不写，
+       也不必知道后端用哪个路径、要不要管理员。
+       返回 $null = 这棵树上没有这一路的后端(单游戏仓库的正常形态)，调用方按"这一轮不救"处理。 #>
+    param([Parameter(Mandatory)]$S, [string]$Kind = 'ark', $Conn = $null)
+    if (-not $Kind) { $Kind = 'ark' }
+    $builder = "New-GdVisionTarget-$($Kind.ToLowerInvariant())"
+    if (-not (Get-Command $builder -ErrorAction SilentlyContinue)) { return $null }
+    if ($null -ne $Conn) { return (& $builder -S $S -Conn $Conn) }
+    return (& $builder -S $S)
 }
 
 function Get-GdVisionSystemPrompt {
     <# 提示词单独成一个函数：这样自检能直接断言"禁止点领取"这类关键约束还在，
-       而不是改一句话把安全边界改没了都没人发现。 #>
-    return @'
+       而不是改一句话把安全边界改没了都没人发现。
+       -Scene 只换开头那段"这是什么画面"，后面那几条规则两路共用、一个字不改；
+       默认值是端游那套文案 —— ark 一路的措辞不许变，tools\test-ark.ps1 的 t13 也盯着它。
+       2026-09-26 起允许最多 3 个候选点位：实测模型认得弹窗、却把 × 认成了"暂不查看"那类相邻按钮，
+       一次只给一个点位时"点完画面没变"就只能整轮放弃；给它三个按把握排序的备选，
+       兜底就能在**同一次问价**里连着试(试错不额外花钱，也不额外问模型)。
+       -AllowReward 是第 3 条规则的口子(默认关)：开了之后允许它给"领取日常奖励"那类按钮。
+       为什么默认关、又为什么要这个口子：兜底的本职是"把挡路的东西弄走"，点领取会把号往奖励里去，
+       判错一次就是拿账号换一次不确定；但每日签到/邮箱领奖励恰好也是"人眼一看就该点"的那类，
+       所以做成**要人在面板里明写勾选**的可选档，而不是默认行为，也不是永远不许。 #>
+    param([string]$Scene = '', [bool]$AllowReward = $false)
+    $head = if ($Scene) { [string]$Scene } else { @'
 你是明日方舟端游自动化流程里的"看屏幕的人"。自动化助手(MAA)不认识界面上没收录过的弹窗，有时会一直在原地
 点同一个按钮。给你一张端游窗口截图，请判断画面上有没有挡住主流程的弹窗，并指出该点哪里把它关掉。
+'@.TrimEnd() }
+    # 两条规则只差"领取"这一个词能不能给，其余(不碰充值/前往参与/开始行动)一个字都不松。
+    $rule3 = if ($AllowReward) { @'
+3. 这一轮已允许"领取日常奖励"：画面里有**明确的**领取/一键领取/邮箱领奖励按钮时可以给出它。
+   但"前往参与""开始行动""确定""充值"这类会改变游戏进度或花钱的按钮绝对不给，即使它在画面正中。
+'@ } else { @'
+3. 绝对不要给"领取""前往参与""确定""开始行动""充值"这类会推进游戏状态的按钮，即使它在画面正中。
+'@ }
+    $body = @'
 
 只输出一个 JSON 对象，不要 markdown 代码块、不要任何解释文字：
 {"blocking": true 或 false, "what": "不超过20字，说明挡住的是什么", "clicks": [{"x": 整数, "y": 整数, "why": "不超过14字"}]}
 
 必须遵守的规则：
 1. x、y 是相对这张图片宽、高的千分比(0-1000)，不是像素。换算：像素x = x/1000*图片宽。
-2. clicks 最多 1 个。只允许给"关闭/取消/暂不/跳过/知道了/X"这类**只会把弹窗关掉**的位置。
-3. 绝对不要给"领取""前往参与""确定""开始行动""充值"这类会推进游戏状态的按钮，即使它在画面正中。
-4. 关闭按钮通常在该弹窗的右上角(常常是一个 X 或小圆圈)。弹窗有多个关闭位时，选最靠右上角的那个。
+2. clicks 最多 3 个，按你的把握从大到小排。只允许给"关闭/取消/暂不/跳过/知道了/X"这类**只会把弹窗关掉**的位置。
+'@ + $rule3.TrimEnd() + @'
+4. 关闭按钮通常在该弹窗的右上角(常常是一个 X 或小圆圈)。弹窗有多个关闭位时，把最像关闭的那个排第一。
 5. 画面上没有挡住流程的弹窗 → blocking 给 false、clicks 给空数组。拿不准也一律给空数组。
 6. 不要输出坐标以外的多余字段。
 '@
+    return $head + $body
 }
 
 function Get-GdVisionVerdictFromText {
-    <# 把模型回复解析成 @{Blocking;What;X;Y;Why}，解析不出来返回 $null。
+    <# 把模型回复解析成 @{Blocking;What;X;Y;Why;Clicks}，解析不出来返回 $null。
        模型偶尔会裹一层 ```json 或前后带一句话，所以从整段文本里"抠"第一个 JSON 对象，
-       而不是假设整段就是 JSON。纯字符串处理，自检直接喂样本。 #>
+       而不是假设整段就是 JSON。纯字符串处理，自检直接喂样本。
+       X/Y/Why 一直等于 Clicks 的第一个：老代码和 t13 那批断言认的是这三个字段，
+       新的多候选循环认 Clicks —— 加字段不破约，改名字才破约。 #>
     param([string]$Text)
     if ([string]::IsNullOrWhiteSpace($Text)) { return $null }
     $t = $Text -replace '```[a-zA-Z]*', ''
@@ -362,20 +158,32 @@ function Get-GdVisionVerdictFromText {
     }
     if (-not $json) { return $null }
     try { $o = $json | ConvertFrom-Json } catch { return $null }
-    $clicks = @($o.clicks)
+    # 只留"三个 x/y 都是整数"的那几个：模型给出 {"x":null} 或把 y 写成 "右上角" 时，
+    # 后面 Get-GdRescueClickPoint 的 TryParse 会把它拒掉，但那样一条坏点位就把两个好点位一起带走了。
+    $clicks = @(foreach ($c in @($o.clicks)) {
+        if ($null -eq $c) { continue }
+        $cx = 0; $cy = 0
+        if (-not ([int]::TryParse([string]$c.x, [ref]$cx) -and [int]::TryParse([string]$c.y, [ref]$cy))) { continue }
+        [pscustomobject]@{ X = $cx; Y = $cy; Why = [string]$c.why }
+    })
+    if ($clicks.Count -gt 3) { $clicks = @($clicks | Select-Object -First 3) }
+    $first = if ($clicks.Count) { $clicks[0] } else { $null }
     [pscustomobject]@{
         Blocking = [bool]$o.blocking
         What     = [string]$o.what
-        X        = if ($clicks.Count -ge 1) { $clicks[0].x } else { $null }
-        Y        = if ($clicks.Count -ge 1) { $clicks[0].y } else { $null }
-        Why      = if ($clicks.Count -ge 1) { [string]$clicks[0].why } else { '' }
+        X        = $(if ($first) { $first.X } else { $null })
+        Y        = $(if ($first) { $first.Y } else { $null })
+        Why      = $(if ($first) { $first.Why } else { '' })
+        Clicks   = $clicks
     }
 }
 
 function Get-GdRescueClickPoint {
-    <# 模型 verdict(千分比，相对整窗位图) → PostMessage 要的**客户区**坐标。
-       窗口位图里有标题栏和边框，所以要先减掉客户区在位图里的原点，再按客户区尺寸裁住边界。
-       越界(说明模型指到窗口外/标题栏上，或者它压根没给坐标)返回 $null → 宁可这一轮不救。 #>
+    <# 模型 verdict(千分比，相对整张截图) → 后端点击要的**那幅图的坐标**。
+       端游拍的是整窗位图，里面有标题栏和边框，所以要先减掉客户区在位图里的原点，再按客户区尺寸裁住边界；
+       模拟器拍的就是整块屏幕，它的靶子把 ClientLeft/ClientTop 报 0、ClientW/ClientH 报图的宽高，
+       同一个函数算出来正好是设备像素 —— 所以这里不需要认识后端。
+       越界(说明模型指到画面外/标题栏上，或者它压根没给坐标)返回 $null → 宁可这一轮不救。 #>
     param(
         [Parameter(Mandatory)]$Shot,
         [Parameter(Mandatory)]$Verdict,
@@ -391,13 +199,10 @@ function Get-GdRescueClickPoint {
     $cy = $py - [int]$Shot.ClientTop
     if ($cx -lt 0 -or $cy -lt 0) { return $null }
     if ($cx -ge [int]$Shot.ClientW -or $cy -ge [int]$Shot.ClientH) { return $null }
-    return [pscustomobject]@{ ClientX = $cx; ClientY = $cy; BitmapX = $px; BitmapY = $py; NormX = $nx; NormY = $ny }
-}
-
-function New-GdRescueSkip {
-    <# "这次没救成，原因是……"的统一出口：Tried=$false 表示连一次点击都没发出去 #>
-    param([string]$Why)
-    return [pscustomobject]@{ Tried = $false; Done = $false; Detail = $Why }
+    # Why 是从 verdict 那里顺带过来的：调用方要把"这个点位模型说它是干什么的"打进日志，
+    # 否则日志里只有三个坐标，回看时谁也说不清当时点的是 × 还是"暂不查看"。
+    return [pscustomobject]@{ ClientX = $cx; ClientY = $cy; BitmapX = $px; BitmapY = $py; NormX = $nx; NormY = $ny;
+        Why = $(if ($Verdict.Why) { [string]$Verdict.Why } else { '' }) }
 }
 
 function Get-GdVisionApiKey {
@@ -421,42 +226,112 @@ function Resolve-GdVisionEndpoint {
     return "$b/chat/completions"
 }
 
-function Invoke-GdVisionAsk {
-    <# 一次真实的视觉模型调用：图片走 data:image/png;base64 内联(百炼兼容 OpenAI 的接口收这个)，
-       返回解析后的 verdict；任何一步不对都 throw，由调用方统一降级成"这轮不救"。
-       单独成函数就是为了给自检一个可以整体替换的假实现(自检绝不联网)。 #>
+function Get-GdVisionAskDir { Join-Path $global:GD.State 'vision' }
+
+function Invoke-GdVisionRaw {
+    <# 一次"问模型"的**原始**往返：起 Python 子进程跑 tools\vision\ask.py，把它的回复原样带回来。
+       为什么这一层交给 Python：超时/连不上/key 不对/端点写错/被限流这几件事，
+       Invoke-RestMethod 只会揉成一句 WebException，而兜底最需要的恰恰是"这次没问成，该改哪儿"；
+       Python 侧按 HTTP 状态分好了类，还带 429/5xx 的退避重试(lib\common.ps1 的 Get-GdPythonExe 说怎么找到解释器)。
+       分工没变的那一半：它**只**管发请求。解析回复、换算点位、判断能不能点，全都还在本文件里
+       —— 那里有 tools\test-ark.ps1 现成的断言守着"禁止点领取"这类安全边界，不跟 HTTP 一起搬走。
+       -Context 是"自动化这边为什么在问"(卡在哪个任务、重复点了多少次)，拼到用户那句话后面；
+       同一张画面，带不带这句会挑出不同的"挡路货"，而兜底一轮只有那几次机会。
+       key 只经环境变量给子进程：不进命令行(进程列表看得见)、不进请求文件、不进日志、不进诊断包。
+       返回 @{Ok;Text;Model;HttpStatus;ElapsedMs;Attempts;Error;RequestPath}，任何一步不对都不抛，
+       由调用方决定是 throw(兜底)还是打印(只问不点的诊断入口)。 #>
     param(
         [Parameter(Mandatory)]$S,
-        [Parameter(Mandatory)][string]$ImagePath
+        [Parameter(Mandatory)][string]$ImagePath,
+        [string]$Scene = '',
+        [string]$UserText = '',
+        [string]$Context = ''
     )
     $key = Get-GdVisionApiKey -S $S
-    if (-not $key) { throw '没有视觉模型的 API key(settings.runtime.visionApiKey 或环境变量 DASHSCOPE_API_KEY)' }
-    Enable-GdTls12
+    if (-not $key) { return [pscustomobject]@{ Ok = $false; Error = '没有视觉模型的 API key(settings.runtime.visionApiKey 或环境变量 DASHSCOPE_API_KEY)' } }
+    $script = Join-Path (Get-GdRoot) 'tools\vision\ask.py'
+    if (-not (Test-Path -LiteralPath $script)) {
+        return [pscustomobject]@{ Ok = $false; Error = '缺少 tools\vision\ask.py(问模型这一层的实现)，这一棵树上问不了模型' }
+    }
+    $py = Get-GdPythonExe -S $S
+    if (-not $py) {
+        return [pscustomobject]@{ Ok = $false; Error = '没找到可用的 Python 3(问模型这一层用它跑)：跑 setup.ps1 -WithPython 自动装一份到 state\python\，或把 runtime.pythonExe 指到自己装的那份' }
+    }
     $model = if ($S.runtime.visionModel) { [string]$S.runtime.visionModel } else { 'qwen3.8-flash' }
-    $url   = Resolve-GdVisionEndpoint -Base ([string]$S.runtime.visionBaseUrl)
-    $b64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($ImagePath))
-    $body = @{
-        model          = $model
-        temperature    = 0
-        max_tokens     = 300
-        response_format = @{ type = 'json_object' }
-        messages       = @(
-            @{ role = 'system'; content = (Get-GdVisionSystemPrompt) },
-            @{ role = 'user'; content = @(
-                @{ type = 'image_url'; image_url = @{ url = "data:image/png;base64,$b64" } },
-                @{ type = 'text'; text = '这是端游当前画面。按规则只回一个 JSON 对象。' }
-            ) }
-        )
-    } | ConvertTo-Json -Depth 8 -Compress
     $sec = [int]$S.runtime.visionTimeoutSeconds
     if ($sec -le 0) { $sec = 45 }
-    $resp = Invoke-RestMethod -Uri $url -Method Post -TimeoutSec $sec `
-        -Headers @{ Authorization = "Bearer $key" } `
-        -ContentType 'application/json; charset=utf-8' `
-        -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
-    $text = ''
-    if ($resp.choices -and @($resp.choices).Count -ge 1) { $text = [string]@($resp.choices)[0].message.content }
-    return (Get-GdVisionVerdictFromText -Text $text)
+    if (-not $UserText) { $UserText = '这是当前画面。按规则只回一个 JSON 对象。' }
+    if ($Context) {
+        # 上下文截到 200 字：它是"给模型的一句处境说明"，不是日志转储。
+        # 一次问价的钱按 token 算，而 Detail 里那串任务名/日志文件名对模型判断画面毫无帮助。
+        $ctx = ([string]$Context) -replace '\s+', ' '
+        if ($ctx.Length -gt 200) { $ctx = $ctx.Substring(0, 200) + '…' }
+        $UserText = "$UserText  自动化这边的处境：$ctx"
+    }
+    $dir = Get-GdVisionAskDir
+    if (-not (Test-Path -LiteralPath $dir)) { [void](New-Item -ItemType Directory -Path $dir -Force) }
+    $reqPath = Join-Path $dir ('ask-' + (Get-Date -Format 'MMdd-HHmmss-fff') + '.json')
+    # 提示词太长、还带引号和换行，塞命令行必然出乱子；图片路径也可能有空格 → 一律走请求文件
+    $req = [ordered]@{
+        image            = [string]$ImagePath
+        system_prompt    = (Get-GdVisionSystemPrompt -Scene $Scene -AllowReward ([bool]$S.runtime.visionAllowReward))
+        user_text        = $UserText
+        endpoint         = (Resolve-GdVisionEndpoint -Base ([string]$S.runtime.visionBaseUrl))
+        model            = $model
+        temperature      = 0                 # 兜底要的是可复现，不是发挥
+        max_tokens       = 300
+        timeout_seconds  = $sec
+        audit            = (Join-Path $dir 'calls.jsonl')
+    }
+    Write-GdJson -Path $reqPath -Object ([pscustomobject]$req)
+    # 子进程总超时 = 单次超时 ×(重试次数 + 1)+ 启动余量。Python 侧默认重试 2 次(只在 429/5xx 上重试)，
+    # 所以最坏是 3×45s；不给够这个数会在它还在退避重试时就把进程杀掉，白得到一个"超时"。
+    $r = Invoke-GdChild -File $py -TimeoutSeconds ($sec * 3 + 30) -Env @{ DASHSCOPE_API_KEY = $key } `
+                        -Arguments @($script, '--request', $reqPath)
+    $out = ("$($r.Out)").Trim()
+    $parsed = $null
+    if ($out) {
+        # ask.py 保证 stdout 只有一个 JSON 对象；万一解释器往前面打了别的(版本警告、site 报错)，
+        # 从后往前找第一行能解析的就够了 —— 别整段 ConvertFrom-Json，那样一句警告就能把兜底弄挂。
+        foreach ($line in @(($out -split "`r?`n") | Where-Object { $_ -match '^\s*\{' } | ForEach-Object { $_ })) {
+            try { $parsed = $line | ConvertFrom-Json; break } catch { }
+        }
+    }
+    if (-not $parsed) {
+        $why = "Python 没回 JSON(退出码 $($r.Code))"
+        $tail = ("$($r.Err)").Trim()
+        if ($r.Code -eq -1) { $why = "问模型超时(Python 侧 $((Get-Date).ToString('HH:mm:ss')) 前没回)" }
+        elseif ($tail) { $why += "：$tail" }
+        elseif ($out) { $why += "：$out" }
+        return [pscustomobject]@{ Ok = $false; Error = $why; RequestPath = $reqPath }
+    }
+    Clear-GdVisionAskDir
+    return [pscustomobject]@{
+        Ok          = [bool]$parsed.ok
+        Text        = [string]$parsed.text
+        Model       = [string]$parsed.model
+        HttpStatus  = [int]$parsed.http_status
+        ElapsedMs   = [int]$parsed.elapsed_ms
+        Attempts    = [int]$parsed.attempts
+        Error       = [string]$parsed.error
+        RequestPath = $reqPath
+    }
+}
+
+function Invoke-GdVisionAsk {
+    <# 问完直接给解析好的 verdict(兜底只要这一个结果)。任何一步不对都 throw，由调用方统一降级成"这轮不救"。
+       单独成函数就是为了给自检一个可以整体替换的假实现(自检绝不联网、也不起子进程)。
+       -Scene/-UserText 由靶子传进来：同一个模型，问端游窗口和问模拟器屏幕的话不一样。 #>
+    param(
+        [Parameter(Mandatory)]$S,
+        [Parameter(Mandatory)][string]$ImagePath,
+        [string]$Scene = '',
+        [string]$UserText = '',
+        [string]$Context = ''
+    )
+    $raw = Invoke-GdVisionRaw -S $S -ImagePath $ImagePath -Scene $Scene -UserText $UserText -Context $Context
+    if (-not $raw.Ok) { throw ([string]$raw.Error) }
+    return (Get-GdVisionVerdictFromText -Text $raw.Text)
 }
 
 function Test-GdShotChanged {
@@ -483,91 +358,160 @@ function Test-GdShotChanged {
         Detail = "画面变了 $diff 格(判据：≥$MinCells 格、每格 ≥$MinDelta 档)" }
 }
 
-function Send-GdArkClick {
-    <# 往端游客户区某个点发一次左键，返回 @{Mode;Sent}。
-       为什么不只靠 PostMessage：2026-09-24 实测过 —— 裸 PostMessage(客户区坐标)消息确实发出去了、
-       坐标也正好压在"是否消耗1次联络机会"那个 × 上(模型给的点位偏差只有 2 像素)，弹窗却纹丝不动。
-       默认走"抢前台 + 真实点击"是因为它是这台机器上被反复验证有效的那条路；
-       抢不到前台才退回 PostMessage —— 宁可点不动，也不能把真实点击漏进用户正在用的窗口。
-       （别把这条当成"MAA 也这么点"：MAA 配置里鼠标是 PostMessageWithWindowPos、键盘是 SendMessage，
-        它同样在发消息、而且有人在机器前时点得动；但它那个"带窗口位置"的变体和这里裸发客户区坐标是不是一回事，
-        还没验过 —— 所以本函数继续把真实鼠标当主路径。） #>
-    param(
-        [Parameter(Mandatory)][IntPtr]$Hwnd,
-        [Parameter(Mandatory)][int]$ClientX,
-        [Parameter(Mandatory)][int]$ClientY
-    )
-    Add-GdRescueTypeDef
-    $pt = [GdWin]::ToScreen($Hwnd, $ClientX, $ClientY)
-    if ([GdWin]::TryForeground($Hwnd)) {
-        $old = [GdWin]::CursorPos()
-        $sent = [GdWin]::RealClick($pt.X, $pt.Y)
-        Start-Sleep -Milliseconds 200
-        [void][GdWin]::SetCursorPos([int]$old.X, [int]$old.Y)   # 鼠标放回原处，别留在游戏窗口里
-        if ($sent) { return [pscustomobject]@{ Mode = '真实点击'; Sent = $true } }
-    }
-    return [pscustomobject]@{ Mode = 'PostMessage(没抢到前台，很可能点不动)'; Sent = [GdWin]::ClickOnce($Hwnd, $ClientX, $ClientY) }
-}
-
 function Invoke-GdVisionRescue {
-    <# 兜底总入口：截图 → 问模型 → 点一下 → 再截图确认画面真的变了。
+    <# 兜底总入口：拿靶子 → 截图 → 问模型 → 点一下 → 再截图确认画面真的变了。
        返回 @{Tried;Done;Detail}。Tried=是否真的动过手；Done=是否点完并且画面确实变了。
-       一切前置条件不满足都返回 Tried=$false + 一句人话，调用方只管把 Detail 拼进结论里。 #>
+       一切前置条件不满足都返回 Tried=$false + 一句人话，调用方只管把 Detail 拼进结论里。
+       -Target 不给就是 'ark'：lib\maa.ps1 那几个调用点一个字都不用改。
+       -Context 是"为什么要问这一句"(卡在哪个任务/重复点了多少次)，会拼进给模型的那句话。
+       为什么值得带：同一张主界面，"MAA 说它在找活动公告的 ×"和什么都不说，模型挑哪个是挡路货不一样；
+       而兜底一次就一轮里那几次机会，问得准比问得省重要。上下文只有一句话的长度，不塞日志原文。
+       闸门顺序不许调换：后端在不在 → 开关 → 权限 → key → Python → 对象还在不在 → 截图。
+       (前几道都排在"截图"之前，自检才能在不碰窗口、不联网的前提下把这几条各演一遍；
+        开关那句的原因必须带 settings 里的键名，t13 就按那几个字断言"关了确实一次都不试"。) #>
     param(
         [Parameter(Mandatory)]$S,
-        [string]$Tag = 'stall'
+        [string]$Tag = 'stall',
+        [string]$Target = 'ark',
+        [string]$Context = '',
+        $Conn = $null
     )
-    if ($S.runtime.arkVisionRescue -eq $false) { return (New-GdRescueSkip 'arkVisionRescue=false，视觉兜底已关闭') }
-    if (-not (Test-GdAdmin)) {
-        return (New-GdRescueSkip '当前不是管理员权限：端游是 requireAdministrator，这个权限下点它不会有任何反应，跳过兜底')
+    $t = Get-GdVisionTarget -S $S -Kind $Target -Conn $Conn
+    if (-not $t) {
+        return (New-GdRescueSkip "这棵树上没有 $Target 这一路的视觉兜底后端(没有 New-GdVisionTarget-$Target 这个函数)")
+    }
+    if (-not $t.Enabled) { return (New-GdRescueSkip [string]$t.Why) }
+    if ($t.NeedsAdmin -and -not (Test-GdAdmin)) {
+        $why = if ($t.AdminWhy) { [string]$t.AdminWhy } else { '这一路的对象要管理员权限，这个权限下点它不会有任何反应' }
+        return (New-GdRescueSkip "当前不是管理员权限：$why，跳过兜底")
     }
     if (-not (Get-GdVisionApiKey -S $S)) {
         return (New-GdRescueSkip '没配视觉模型 key(见 settings 里的 runtime.visionApiKey)，本轮不尝试兜底')
     }
-    $ark = Get-GdArkWindow -S $S
-    if (-not $ark) { return (New-GdRescueSkip '端游窗口已经不在了，兜底没有对象') }
+    # Python 这条闸门排在截图之前，和 key 同一个道理：不问模型也能先把"这棵树上问不成模型"说清楚，
+    # 而且省掉一次白拍 —— 更要紧的是自检能在不碰窗口、不起子进程的前提下演到这一条。
+    if (-not (Get-GdPythonExe -S $S)) {
+        return (New-GdRescueSkip '这台机器上没有可用的 Python 3(问模型那一层用它跑)：跑 setup.ps1 -WithPython 装一份到 state\python\，或把 runtime.pythonExe 指到已有的那份')
+    }
+    if (-not (& $t.Alive)) { return (New-GdRescueSkip "$($t.Name)已经不在了，兜底没有对象") }
 
     $dir = Get-GdRescueShotDir
     $stamp = Get-Date -Format 'MMdd-HHmmss'
-    $before = Save-GdWindowShot -Hwnd $ark.Handle -Path (Join-Path $dir "ark-$Tag-$stamp-before.png")
+    $before = & $t.Shot (Join-Path $dir "$($t.Kind)-$Tag-$stamp-before.png")
     if (-not $before.Ok) { return (New-GdRescueSkip "截图失败：$($before.Why)") }
     if ([int]$before.AvgLum -lt 8) {
         return (New-GdRescueSkip "截图几乎是全黑(平均亮度 $($before.AvgLum))：桌面可能锁了或窗口没在渲染，问模型只会白花钱")
     }
-    Write-GdLog "视觉兜底：已拍端游窗口($($before.ImgW)x$($before.ImgH)，亮度 $($before.AvgLum))，交给模型判断" -Level WARN
+    Write-GdLog "视觉兜底：已拍$($t.Name)($($before.ImgW)x$($before.ImgH)，亮度 $($before.AvgLum))，交给模型判断" -Level WARN
     $v = $null
-    try { $v = Invoke-GdVisionAsk -S $S -ImagePath $before.Path }
+    try { $v = Invoke-GdVisionAsk -S $S -ImagePath $before.Path -Scene ([string]$t.Scene) -UserText ([string]$t.UserText) -Context $Context }
     catch { return (New-GdRescueSkip "模型调用失败：$($_.Exception.Message)") }
     if (-not $v) { return (New-GdRescueSkip '模型没按格式回 JSON，不拿它的话当依据') }
     if (-not $v.Blocking) { return (New-GdRescueSkip "模型认为没有弹窗挡路($($v.What))") }
-    $pt = Get-GdRescueClickPoint -Shot $before -Verdict $v
-    if (-not $pt) {
-        return (New-GdRescueSkip "模型说挡路的是$($v.What)，但它给的坐标($($v.X),$($v.Y))落不到客户区里 → 不点")
+    # 换算 + 裁边界都在 Get-GdRescueClickPoint 里做，这里先把落不到画面里的那几个剔掉：
+    # 宁可"一个可用点位都没有"直接放弃，也不要在真点击时才发现第 2 个点位在标题栏上。
+    $points = @(foreach ($c in @($v.Clicks)) {
+        $one = Get-GdRescueClickPoint -Shot $before -Verdict $c
+        if ($one) { $one }
+    })
+    if (-not $points.Count) {
+        return (New-GdRescueSkip "模型说挡路的是$($v.What)，但它给的坐标($($v.X),$($v.Y))落不到画面里 → 不点")
     }
-    Write-GdLog "视觉兜底：$($v.What) → 点客户区 $($pt.ClientX),$($pt.ClientY)($($v.Why))" -Level WARN
-    $click = Send-GdArkClick -Hwnd $ark.Handle -ClientX ([int]$pt.ClientX) -ClientY ([int]$pt.ClientY)
-    Start-Sleep -Seconds 6
-    $after = Save-GdWindowShot -Hwnd $ark.Handle -Path (Join-Path $dir "ark-$Tag-$stamp-after.png")
+    <#
+      按把握从高到低逐个试，谁点完画面真变了就算救活。三次机会都来自同一次问价，所以：
+      不额外花钱、不额外等模型、也不会出现"换了个答案把上一个还回去"。
+      每次点击之后都要补拍一张再比签名 —— 这是唯一能证明"点动了"的证据(2026-09-24 那次
+      哈希不同但弹窗还在，就是缺这一步)。最后一轮的 after 就是这一轮的结论图，中间那几张随 Clear 掉。
+    #>
+    $tries = @()
+    $after = $null
+    foreach ($pt in $points) {
+        Write-GdLog "视觉兜底：$($v.What) → 点$($t.Name) $($pt.ClientX),$($pt.ClientY)($($pt.Why))" -Level WARN
+        $click = & $t.Click ([int]$pt.ClientX) ([int]$pt.ClientY)
+        Start-Sleep -Seconds 6
+        $after = & $t.Shot (Join-Path $dir "$($t.Kind)-$Tag-$stamp-after$($tries.Count + 1).png")
+        if (-not $after.Ok) {
+            Clear-GdRescueShotDir
+            return (New-GdRescueSkip "点完补拍失败：$($after.Why)($($click.Mode))，无法确认是否生效")
+        }
+        $chg = Test-GdShotChanged -Before $before -After $after
+        $tries += "点位 $($pt.ClientX),$($pt.ClientY)($($click.Mode))→$($chg.Detail)"
+        if (-not $chg.Known) {
+            Clear-GdRescueShotDir
+            return [pscustomobject]@{ Tried = $true; Done = $false;
+                Detail = "按模型说的把$([string]$v.What)点了一下($($tries[-1]))，但$($chg.Detail) → 不算救活" }
+        }
+        if ($chg.Changed) {
+            Clear-GdRescueShotDir
+            return [pscustomobject]@{ Tried = $true; Done = $true;
+                Detail = "已按模型判断关掉$([string]$v.What)：$(if ($tries.Count -gt 1) { "试了 $($tries.Count) 个点位，" } else { '' })$($tries[-1])" }
+        }
+    }
     Clear-GdRescueShotDir
-    if (-not $after.Ok) { return (New-GdRescueSkip "点完补拍失败：$($after.Why)($($click.Mode))，无法确认是否生效") }
-    $chg = Test-GdShotChanged -Before $before -After $after
-    if (-not $chg.Known) {
-        return [pscustomobject]@{ Tried = $true; Done = $false;
-            Detail = "$($click.Mode)已经发过(点位 $($pt.ClientX),$($pt.ClientY))，但$($chg.Detail) → 不算救活" }
-    }
-    if (-not $chg.Changed) {
-        return [pscustomobject]@{ Tried = $true; Done = $false;
-            Detail = "按模型说的把$([string]$v.What)点了一下($($click.Mode)，点位 $($pt.ClientX),$($pt.ClientY))，$($chg.Detail) → 弹窗还在，这一路走不通" }
-    }
-    return [pscustomobject]@{ Tried = $true; Done = $true;
-        Detail = "已按模型判断关掉$([string]$v.What)($($click.Mode) 点位 $($pt.ClientX),$($pt.ClientY))，$($chg.Detail)" }
+    return [pscustomobject]@{ Tried = $true; Done = $false;
+        Detail = "按模型说的把$([string]$v.What)点了 $($tries.Count) 个候选点位($($tries -join '；'))，画面都没动 → 这一路走不通" }
 }
 
-function Clear-GdRescueShotDir {
-    <# 兜底截图是取证用的，别把 state\rescue 堆成几百张：按时间留最近 24 张(= 12 次兜底)。 #>
-    $dir = Get-GdRescueShotDir
-    if (-not (Test-Path -LiteralPath $dir)) { return }
-    $keep = @(Get-ChildItem -LiteralPath $dir -Filter '*.png' -ErrorAction SilentlyContinue |
-              Sort-Object LastWriteTime -Descending | Select-Object -Skip 24)
-    foreach ($f in $keep) { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue }
+function Clear-GdVisionFiles {
+    <# 兜底的临时东西都是取证用的，别把 state 堆成几百个文件：按时间留最近 Keep 个。
+       两路共用同一个目录，截图文件名开头是靶子的 kind(ark-/mumu-)，翻图时一眼分得清是谁的画面。 #>
+    param([Parameter(Mandatory)][string]$Dir, [string]$Pattern = '*.png', [int]$Keep = 24)
+    if (-not (Test-Path -LiteralPath $Dir)) { return }
+    $stale = @(Get-ChildItem -LiteralPath $Dir -Filter $Pattern -ErrorAction SilentlyContinue |
+               Sort-Object LastWriteTime -Descending | Select-Object -Skip $Keep)
+    foreach ($f in $stale) { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue }
+}
+
+function Clear-GdRescueShotDir { Clear-GdVisionFiles -Dir (Get-GdRescueShotDir) -Pattern '*.png' -Keep 24 }
+
+function Get-GdRescueLedgerPath { Join-Path $global:GD.State 'rescue.json' }
+
+function Add-GdRescueRecord {
+    <# 救火记账：这一轮兜了几次、每次救活没有。写在 state\rescue.json，和 tools\vision\ask.py 的
+       state\vision\calls.jsonl **分开放**，因为两本账回答的问题不一样：
+         calls.jsonl = "这一次请求发出去了吗、HTTP 什么状态、花了多少毫秒"(接口层，一行一次请求)
+         rescue.json = "哪一路、哪个环节、兜完画面到底变没变"(判定层，玩家和面板看的是这本)
+       为什么由调用方(maa.ps1 / m9a.ps1)点它、内核自己不点：内核不知道自己是给哪一路兜的
+       (-Target 只是后端名，"这一轮算 ark 还是 r1999"是调用方的事)，而记账恰恰要这个归属。
+       只留最近 Keep 条：这是一本"回看上几轮"的账，不是日志归档。 #>
+    param(
+        [Parameter(Mandatory)]$S,
+        [Parameter(Mandatory)][string]$Game,
+        [Parameter(Mandatory)]$Result,
+        [string]$Tag = '',
+        [string]$Target = '',
+        [int]$Keep = 60
+    )
+    $path = Get-GdRescueLedgerPath
+    $ledger = [ordered]@{ version = 1; updated = ''; events = @() }
+    # Read-GdJson 在文件不存在时是 throw，而"第一次救火"恰恰就是文件不存在那次 ——
+    # 入口的 $ErrorActionPreference='Stop' 会让这句 throw 一路冒到调用方，把"记一笔账"升级成"整轮失败"。
+    if (Test-Path -LiteralPath $path) {
+        $old = $null
+        try { $old = Read-GdJson -Path $path } catch { Write-GdLog "救火账本旧内容读不动(按空账继续)：$($_.Exception.Message)" -Level WARN }
+        if ($old -and $old.events) { $ledger.events = @($old.events) }
+    }
+    $detail = [string]$Result.Detail
+    $ledger.events = @($ledger.events) + @{
+        time   = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+        game   = $Game
+        target = $(if ($Target) { $Target } else { [string]$Result.Target })
+        tag    = $Tag
+        tried  = [bool]$Result.Tried
+        done   = [bool]$Result.Done
+        detail = ($detail -replace "`r?`n", ' | ')
+    }
+    if ($ledger.events.Count -gt $Keep) {
+        $ledger.events = @($ledger.events | Select-Object -Last $Keep)
+    }
+    $ledger.updated = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+    # 账本写坏不能弄挂日常：兜底本身已经在异常路径上了，再抛一次等于把"卡住"升级成"整轮失败"。
+    try { Write-GdJson -Path $path -Object ([pscustomobject]$ledger) } catch { Write-GdLog "救火账本没写进去：$($_.Exception.Message)" -Level WARN }
+    return $true
+}
+
+function Clear-GdVisionAskDir {
+    <# 请求文件里只有提示词和本机截图路径，没有任何 key(python 侧只从环境变量读)；
+       留最近 12 份 = 够回看"这轮兜底到底问了什么"，又不会堆成日志。calls.jsonl 不删(它是账本，一行一条)。 #>
+    Clear-GdVisionFiles -Dir (Get-GdVisionAskDir) -Pattern 'ask-*.json' -Keep 12
 }

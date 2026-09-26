@@ -178,12 +178,34 @@ function Invoke-GdArkRetryProbe {
         $c.maaRuns++; $st = $c.statuses[$c.i]; $c.i++
         return @{ Status = $st; Detail = "假状态 $st"; Duration = 1 }
     }
+    function Get-GdInputDesktopName { return 'Default' }   # 起跑前置判定不许押机器现场：本机挂着屏保时这里会返回 Screen-saver，探针会被提前退掉判成"拉端游 0 次"的假红
     Start-GdArkDaily -S $S -Decision ([pscustomobject]@{ Mode = 'idle'; Stage = 'CE-5,LS-5'; ClearSanity = $true; Reason = '假判定' }) | Out-Null
     return [pscustomobject]@{ Launches = $c.launches; MaaRuns = $c.maaRuns; Stops = $c.stops }
 }
 $probe = Invoke-GdArkRetryProbe
 Check '首轮 stalled 触发重试时，端游会被重新拉起(拉端游写在 $run 里，重试不再是光启动 MAA)' (
     $probe.MaaRuns -eq 2 -and $probe.Launches -eq 2) "拉端游 $($probe.Launches) 次 / 跑 MAA $($probe.MaaRuns) 次 / 收尾 $($probe.Stops) 次"
+# 2026-09-26 起跑输入桌面判定的两条分支(同样全靠假函数，不看本机真桌面)：桌面被屏保/锁屏占住 → 早退 not-started、一次端游都不拉；
+# 桌面名读不到('' = 不知道) → 不许据此杀正常路。
+function Invoke-GdDeskGateProbe([string]$FakeDesk) {
+    $c = @{ launches = 0; desk = $FakeDesk }
+    function Start-Sleep { param([Parameter(ValueFromRemainingArguments)]$Rest) }
+    function Get-MaaPaths { param($S) return [pscustomobject]@{ Name = 'MAA' } }
+    function Invoke-GdTakeover { param($S, $Names, $Label) }
+    function Set-MaaDailyConfig { param($S, $Decision, [switch]$Apply) return [pscustomobject]@{ Changes = @(); ExpectedChains = @('StartUp') } }
+    function Start-GdArkClient { param($S) $c.launches++; return $true }
+    function Stop-MaaAndGame { param($S) }
+    function Invoke-MaaRun { param($S, $ExpectedChains) return @{ Status = 'ok'; Detail = '假ok'; Duration = 1 } }
+    function Get-GdInputDesktopName { return $c.desk }
+    $all = Start-GdArkDaily -S $S -Decision ([pscustomobject]@{ Mode = 'idle'; Stage = 'CE-5'; ClearSanity = $true; Reason = '假判定' })
+    $r = @($all | Where-Object { $_ -is [System.Collections.IDictionary] }) | Select-Object -First 1
+    return [pscustomobject]@{ Launches = $c.launches; Status = $r.Status; Detail = $r.Detail }
+}
+$gate = Invoke-GdDeskGateProbe -FakeDesk 'Screen-saver'
+Check '输入桌面被屏保占住 → not-started 早退，一个端游不拉、Detail 带桌面名' (
+    $gate.Launches -eq 0 -and $gate.Status -eq 'not-started' -and $gate.Detail -match 'Screen-saver') "拉端游 $($gate.Launches) 次 / 状态=$($gate.Status)"
+$gate2 = Invoke-GdDeskGateProbe -FakeDesk ''
+Check '读不到输入桌面名(空串=不知道) → 不早退，照常拉端游跑完' ($gate2.Launches -ge 1) "拉端游 $($gate2.Launches) 次"
 $maaLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\maa.ps1') -Raw -Encoding utf8
 Check 'MAA 侧也有 unknown-format 判定(日志在涨却零标志)' ($maaLib -match "Status = 'unknown-format'")
 
@@ -256,7 +278,32 @@ if (Get-Command Get-GdVisionVerdictFromText -ErrorAction SilentlyContinue) {
     Check '地址留空回落到百炼公共端点' (
         (Resolve-GdVisionEndpoint -Base '') -eq 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions')
     Check '提示词还禁止点领取/前往参与这类推进状态的按钮' ($sp -match '领取' -and $sp -match '不要给')
-    Check '提示词最多只允许 1 次点击' ($sp -match 'clicks 最多 1 个')
+    # 2026-09-26：一次只给一个点位时，"点完画面没动"就只能整轮放弃；改成最多 3 个按把握排序的备选，
+    # 同一次问价里连着试(实测模型认得弹窗、却把 × 认成相邻的"暂不查看"，第二三个点位就是留给这种错的)。
+    Check '提示词允许最多 3 个候选点位，并要求按把握从大到小排' (
+        $sp -match 'clicks 最多 3 个' -and $sp -match '把握' -and $sp -notmatch 'clicks 最多 1 个')
+    Check '提示词仍把"只会关掉弹窗"当作唯一的点位性质' ($sp -match '关闭/取消/暂不/跳过/知道了')
+    # -AllowReward 是第 3 条规则的可选口子(默认关，要玩家在面板里明写勾选)。
+    # 两条分支都要判：只判默认分支的话，"勾一下就变成什么都能点"没人拦得住。
+    $spAllow = Get-GdVisionSystemPrompt -AllowReward $true
+    Check '勾了领奖档 → 允许给出明确的领取按钮' ($spAllow -match '已允许"领取日常奖励"' -and $spAllow -notmatch '绝对不要给"领取"')
+    Check '但领奖档仍然禁止花钱/推进进度那类按钮(充值、前往参与、开始行动、确定)' (
+        $spAllow -match '充值' -and $spAllow -match '前往参与' -and $spAllow -match '开始行动' -and $spAllow -match '绝对不给')
+    Check '领奖档不许改动其余规则(3 个点位/千分比/拿不准给空数组一样都在)' (
+        $spAllow -match 'clicks 最多 3 个' -and $spAllow -match '千分比' -and $spAllow -match '拿不准也一律给空数组')
+    Check '不勾就是硬禁：默认文案里"领取"和"不要给"绑在同一句(逐字不许变，改了要连配置页文案一起改)' (
+        $sp -match '绝对不要给"领取"' -and ($sp -split "`n" | Where-Object { $_ -match '绝对不要给"领取"' }).Count -eq 1)
+
+    # 点位数组：坏点位单独丢掉，不能把同批的好点位一起带走(模型常给 {"x":null})
+    $vMany = Get-GdVisionVerdictFromText -Text '{"blocking":true,"what":"公告","clicks":[{"x":null,"y":null,"why":"没坐标"},{"x":700,"y":200,"why":"右上角关闭"},{"x":"abc","y":300,"why":"不是数"},{"x":800,"y":210,"why":"备用"},{"x":900,"y":220,"why":"备用2"},{"x":950,"y":230,"why":"超标的第4个"}]}'
+    Check 'Clicks 只留 x/y 真是整数的那几个，最多 3 个' (
+        @($vMany.Clicks).Count -eq 3 -and [int]$vMany.Clicks[0].X -eq 700 -and [int]$vMany.Clicks[1].X -eq 800) $(
+        (@($vMany.Clicks) | ForEach-Object { "$($_.X),$($_.Y)" }) -join ' / ')
+    Check 'X/Y/Why 恒等于第 1 个点位(老代码与 t13 那批断言认的还是这三个字段)' (
+        [int]$vMany.X -eq 700 -and [int]$vMany.Y -eq 200 -and $vMany.Why -match '关闭') "$($vMany.X),$($vMany.Y) $($vMany.Why)"
+    Check '点位全坏时 Clicks 是空数组、X 为空(不拿猜测当依据)' (
+        (@((Get-GdVisionVerdictFromText -Text '{"blocking":true,"what":"x","clicks":[{"x":null,"y":null}]}').Clicks).Count -eq 0) -and
+        $null -eq (Get-GdVisionVerdictFromText -Text '{"blocking":true,"what":"x","clicks":[{"x":null,"y":null}]}').X)
 
     # 1920x1080 的整窗位图：客户区左上角在位图里是 (8,31)，客户区 1904x1041
     $shot = [pscustomobject]@{ ImgW = 1920; ImgH = 1080; ClientLeft = 8; ClientTop = 31; ClientW = 1904; ClientH = 1041 }
@@ -288,8 +335,14 @@ if (Get-Command Get-GdVisionVerdictFromText -ErrorAction SilentlyContinue) {
     Check '截图函数会带回 Sig(不然上面几条全是瞎的)' ($fnShot -match 'Sig = ')
     Check '点击走"抢前台 + 真实鼠标"，PostMessage 只当退路' (
         $fnClick -match 'TryForeground' -and $fnClick -match 'RealClick' -and $fnClick -match 'ClickOnce')
-    Check '兜底改调 Send-GdArkClick，不再自己 PostMessage 点端游' (
-        $fnRescue -match 'Send-GdArkClick' -and $fnRescue -notmatch 'ClickOnce')
+    # 2026-09-26 起兜底内核不认识端游了：截图/点击都向靶子要(lib\vision-ark.ps1 的 New-GdVisionTarget-ark)。
+    # 所以这里判两件事：内核里**不能**再出现端游那三个动作，而靶子必须把它们接上 —— 少一头就是"兜底静默不生效"。
+    $fnTarget = (Get-Command New-GdVisionTarget-ark).Definition
+    Check '兜底内核只向靶子要 Shot/Click，不再自己拍端游窗口、自己点端游' (
+        $fnRescue -match '\$t\.Shot' -and $fnRescue -match '\$t\.Click' -and
+        $fnRescue -notmatch 'Send-GdArkClick|ClickOnce|PostMessage|PrintWindow|Get-GdArkWindow')
+    Check '端游靶子把 Shot/Click 接到 Save-GdWindowShot / Send-GdArkClick 上' (
+        $fnTarget -match 'Save-GdWindowShot' -and $fnTarget -match 'Send-GdArkClick')
     Check '最小化的窗口会先 SW_RESTORE 再拍(否则拍到的是 168x29 空位图)' (
         $fnShot -match 'IsIconic' -and $fnShot -match 'Restore')
 
@@ -310,6 +363,33 @@ if (Get-Command Get-GdVisionVerdictFromText -ErrorAction SilentlyContinue) {
         -not $r1.Tried -and -not $r1.Done -and $r1.Detail -match '权限|key') $r1.Detail
     Check '停滞判定处挂了兜底，且用 Get-Command 探路(单游戏仓库没这文件也能跑)' (
         $maaLib -match 'Get-Command Invoke-GdVisionRescue' -and $maaLib -match 'Invoke-GdVisionRescue -S \$S')
+
+    # 2026-09-26：一次问价拿到的 3 个点位在这里按把握逐个试。为什么值得逐个试 ——
+    # 实测模型认得弹窗、却把 × 认成旁边那个"暂不查看"，只给一个点位时"点完没动"就只能整轮放弃；
+    # 而三个点位来自同一次问价：不额外花钱、不额外等模型，也不会出现"换个答案把上一个还回去"。
+    Check '兜底改成按候选点位逐个试的循环，每个点位点完都补拍一张再比' (
+        $fnRescue -match 'foreach \(\$pt in \$points\)' -and $fnRescue -match '-after' -and
+        $fnRescue -match 'Test-GdShotChanged')
+    Check '落不到画面里的候选先全部剔掉，一个不剩就直接放弃(不在真点击时才发现点位在标题栏上)' (
+        $fnRescue -match '\$points = @\(foreach' -and $fnRescue -match 'if \(-not \$points\.Count\)')
+    Check '试完最后一个点位仍没动 → 说清"点了几个候选、画面都没动"' (
+        $fnRescue -match '候选点位' -and $fnRescue -match '画面都没动')
+    Check '救火账本由调用方点，内核自己不记(内核不知道自己是给哪一路兜的)' (
+        $fnRescue -notmatch 'Add-GdRescueRecord')
+    # 上下文：同一张画面，带不带"卡在哪个任务、重复点了多少次"，模型挑出的挡路货不一样，
+    # 而兜底一轮就那么几次机会 —— 问得准比问得省重要。
+    $fnRaw = (Get-Command Invoke-GdVisionRaw).Definition
+    $fnAsk = (Get-Command Invoke-GdVisionAsk).Definition
+    Check '问价那一层把自动化的处境拼进用户那句话，并且截到 200 字(不塞日志原文)' (
+        $fnRaw -match '自动化这边的处境' -and $fnRaw -match '200')
+    Check '-Context 一路从兜底入口递到问价层，中间不断线' (
+        $fnRescue -match 'Invoke-GdVisionAsk.*\$Context' -and $fnAsk -match 'Invoke-GdVisionRaw.*\$Context')
+    Check '方舟这三个兜底调用点各自往救火账本记一笔(-Game ark)' (
+        ([regex]::Matches($maaLib, 'Add-GdRescueRecord -S')).Count -eq 3 -and
+        ([regex]::Matches($maaLib, "-Game 'ark'")).Count -eq 3) $(
+        "记了 $([regex]::Matches($maaLib, 'Add-GdRescueRecord').Count) 笔")
+    Check '早触发和跑空兜底都带上下文(停滞那句说清卡在哪个子任务)' (
+        $maaLib -match '-Context \$whyStuck' -and $maaLib -match '只完成 ')
 } else {
     Check 'lib\vision-rescue.ps1 存在(方舟仓库少了它兜底就不生效)' $false '没找到 Get-GdVisionVerdictFromText'
 }
@@ -377,6 +457,22 @@ if (Get-Command Get-GdArkDesktopState -ErrorAction SilentlyContinue) {
     Check 'MAA 那一路的早退改按"同一子任务重试次数"判，且那句错话已经从代码里删掉' (
         $maaLib -match '\$stuckExec -ge 60' -and $maaLib -match 'Invoke-GdArkForegroundGrab' -and
         $maaLib -notmatch '点击通道已退化' -and $maaLib -match 'Get-Command Get-GdArkDesktopState')
+    # #17 早触发：抢前台只解决"窗口收不到输入"这一种；另一种是"模板集里没收录的界面挡在路上"，
+    # 那只能问画面。所以抢完前台立刻问一次 —— 那 60 秒本来也不会自己变好，干等 22 分钟更不值得。
+    $iStuck = $maaLib.IndexOf('if (($stuckExec -ge 60)')
+    $iDrain2 = $maaLib.IndexOf('if ($drained -and -not $allDone)')
+    $blockStuck = if ($iStuck -gt 0 -and $iDrain2 -gt $iStuck) { $maaLib.Substring($iStuck, $iDrain2 - $iStuck) } else { '' }
+    Check '抢到前台之后当场问一次画面(不再只抢不问)' (
+        $blockStuck -match 'Invoke-GdArkForegroundGrab' -and $blockStuck -match 'Invoke-GdVisionRescue') "stuck@$iStuck drain@$iDrain2"
+    Check '这一问排在"静默 22 分钟"那条判定之前(排在后面就等于没加)' (
+        $iStuck -gt 0 -and $iDrain2 -gt $iStuck -and $maaLib.IndexOf('if ($quiet -gt $stall)') -gt $iDrain2)
+    Check '早触发也受同一份预算管($rescueLeft)，且用 Get-Command 探路' (
+        $blockStuck -match '\$rescueLeft -gt 0' -and $blockStuck -match '\$rescueLeft--' -and
+        $blockStuck -match 'Get-Command Invoke-GdVisionRescue')
+    Check '早触发把"为什么觉得它卡住"原话带给模型(卡在哪个子任务、重复点了多少次)' (
+        $blockStuck -match '重复点了' -and $blockStuck -match '-Context \$whyStuck')
+    Check '兜底结论拼进这一轮的救援记录，同时记进救火账本' (
+        $blockStuck -match '\$rescues \+= \$rc\.Detail' -and $blockStuck -match 'Add-GdRescueRecord')
 } else {
     Check 'lib\vision-rescue.ps1 存在(方舟仓库少了它探测就不生效)' $false '没找到 Get-GdArkDesktopState'
 }
@@ -405,6 +501,79 @@ Check '这一轮不做原地重启：关端游重开 + 重起 MAA 是外层那�
 Check '兜过没兜成都一律立刻早退成 stalled，并说明外层会重试一次(不再清零计时继续等)' (
     $blockDrain -match "Status = 'stalled'" -and $blockDrain -match '外层会重试一次' -and
     $blockDrain -notmatch '(?im)^\s*continue\s*$')
+
+Write-Host "`n[t16] 救火账本 + 只问不点的诊断入口(2026-09-26 加强 AI 干预时加的，全程不联网、不起子进程)"
+if (Get-Command Add-GdRescueRecord -ErrorAction SilentlyContinue) {
+    # 这本账回答的是"哪一路、哪个环节、兜完画面到底变没变"，和 ask.py 那本接口账(state\vision\calls.jsonl)分开放。
+    # 它会真写 state\rescue.json，所以照 t7 的规矩先存后还原。
+    Save-GdTestState -Names @('rescue')
+    try {
+        # 先把它删掉：**第一次**救火时这本账压根不存在，而 Read-GdJson 对"文件不存在"是 throw，
+        # 入口又是 $ErrorActionPreference='Stop' —— 不先测这一条，"记一笔账"能把整轮日常弄挂(2026-09-26 就是这么红出来的)。
+        Remove-Item -LiteralPath (Get-GdRescueLedgerPath) -Force -ErrorAction SilentlyContinue
+        # -S 在这条路上只是"要不要写得出账"的旁观者(它连 settings 都不读)，给个空壳就够
+        $noCfg = [pscustomobject]@{ runtime = [pscustomobject]@{} }
+        $firstOk = $true
+        try {
+            [void](Add-GdRescueRecord -S $noCfg -Game 'ark' -Target 'ark' -Tag 'first' `
+                    -Result ([pscustomobject]@{ Tried = $false; Done = $false; Detail = '账本还没有，第一次记一笔' }))
+        } catch { $firstOk = $false; Write-Host "  第一次记账就抛了：$($_.Exception.Message)" -ForegroundColor Red }
+        Check '账本文件还不存在时也能记下第一笔(不把"记账"升级成"整轮失败")' $firstOk
+        $fnLedger = (Get-Command Add-GdRescueRecord).Definition
+        Check '记账前先看文件在不在(Read-GdJson 对缺文件是 throw，裸调就是上面那条)' (
+            $fnLedger -match 'Test-Path -LiteralPath \$path')
+        [void](Add-GdRescueRecord -S $noCfg -Game 'ark' -Target 'ark' -Tag 'stuck1' `
+                -Result ([pscustomobject]@{ Tried = $true; Done = $false; Detail = "第一行`n第二行(换行要被压平)" }))
+        [void](Add-GdRescueRecord -S $noCfg -Game 'r1999' -Target 'mumu' -Tag 'm9a1' `
+                -Result ([pscustomobject]@{ Tried = $true; Done = $true; Detail = '已按模型判断关掉活动弹窗' }))
+        $led = Read-GdJson -Path (Get-GdRescueLedgerPath)
+        Check '账本落在 state\rescue.json，一次兜底一行' ($led -and @($led.events).Count -eq 3) "实际 $(@($led.events).Count) 条"
+        Check '归属(game/target/tag)由调用方写进去(内核不知道自己是给哪一路兜的)' (
+            $led.events[1].game -eq 'ark' -and $led.events[1].target -eq 'ark' -and
+            $led.events[2].game -eq 'r1999' -and $led.events[2].target -eq 'mumu') $(
+            "$($led.events[1].game)/$($led.events[1].target) + $($led.events[2].game)/$($led.events[2].target)")
+        Check '兜没兜成是两个独立的 bool(试过 ≠ 救活)' (
+            $led.events[1].tried -and -not $led.events[1].done -and $led.events[2].done) $(
+            "$($led.events[1].tried)/$($led.events[1].done) vs $($led.events[2].tried)/$($led.events[2].done)")
+        Check 'detail 里的换行压平成一行(账本是给人翻的，不是日志归档)' (
+            $led.events[1].detail -notmatch "`n" -and $led.events[1].detail -match '\|') $led.events[1].detail
+        # 裁剪：这是一本"回看上几轮"的账，不是日志。留最近的，砍最老的。
+        for ($i = 1; $i -le 8; $i++) {
+            [void](Add-GdRescueRecord -S $noCfg -Game 'ark' -Result ([pscustomobject]@{ Tried = $false; Done = $false; Detail = "凑数 $i" }) -Keep 5)
+        }
+        $led2 = Read-GdJson -Path (Get-GdRescueLedgerPath)
+        Check '超过 Keep 条就砍最老的(这里只留最近 5 条)' (@($led2.events).Count -eq 5 -and @($led2.events)[-1].detail -match '凑数 8') $(
+            "$(@($led2.events).Count) 条，最后一条=$(@($led2.events)[-1].detail)")
+        $fnLedger = (Get-Command Add-GdRescueRecord).Definition
+        Check '账本写不进去只是 WARN 一句，不抛(异常路径上不许再制造一个异常)' (
+            $fnLedger -match 'try \{ Write-GdJson' -and $fnLedger -match '-Level WARN')
+    } finally { Restore-GdTestState }
+    Check 'state 文件已还原' (Test-GdTestStateRestored)
+} else {
+    Check 'lib\vision-rescue.ps1 有 Add-GdRescueRecord(方舟仓库少了它这轮救火没人知道)' $false '没找到这个函数'
+}
+
+# tools\vision-ask.ps1 是"只问不点"的排查入口：配好 key 之后不用跑一轮日常，就能看到模型对着这张图怎么说。
+# 它的价值恰恰在于**不动手**，所以这里判的就是"它真的没有点击的手"。
+$askPath = Join-Path $PSScriptRoot 'vision-ask.ps1'
+if (Test-Path -LiteralPath $askPath) {
+    $askSrc = Get-Content -LiteralPath $askPath -Raw -Encoding utf8
+    # 注释里写着"唯独不碰 $t.Click"，所以判"它没有点击的手"只能判代码，不能判整份文本 ——
+    # 整份文本一起 match 会把那句自我声明当成违规，红得毫无意义。
+    $askCode = (($askSrc -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n")
+    Check '只问不点：代码里没有 $t.Click / Send-GdArkClick / adb input tap 任何一种点击出口' (
+        $askCode -notmatch '\$t\.Click' -and $askCode -notmatch 'Send-GdArkClick' -and $askCode -notmatch 'input tap')
+    Check '复用的是同一套靶子和同一个问价函数(不另写一份提示词，免得两边规则漂移)' (
+        $askSrc -match 'Get-GdVisionTarget' -and $askSrc -match 'Invoke-GdVisionRaw')
+    Check '跑完当面告诉人"本文件没有点任何东西"' ($askSrc -match '没有点任何东西')
+    Check '问哪一路由清单的 VisionKind 决定，这份文件里没有 ark/mumu 硬对照表' (
+        $askSrc -match 'VisionKind' -and $askSrc -notmatch "=\s*'mumu'")
+    Check '给了 -Image 就直接用那张图(不截图，也不会因为后端不在就放弃)' ($askSrc -match '\$Image')
+    Check '开关关着/没提权/对象不在时只说人话，不硬拍' (
+        $askSrc -match 't\.Enabled' -and $askSrc -match 'AdminWhy' -and $askSrc -match 't\.Alive')
+} else {
+    Check 'tools\vision-ask.ps1 存在(只问不点的诊断入口)' $false '没找到这份文件'
+}
 
 $res = Show-GdTestResult -Tag 'ark'
 if ($NoExit) { return $res }

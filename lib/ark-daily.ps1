@@ -61,7 +61,9 @@ function Show-GdArkPreview {
     $prev = Set-MaaDailyConfig -S $S -Decision $Decision
     $prev.Changes | ForEach-Object { Write-GdLog "  MAA：$_" }
     $pattern = if ($S.ark.windowTitlePattern) { [string]$S.ark.windowTitlePattern } else { '明日方舟|Arknights' }
-    $win = Get-GdWindowByTitle -Pattern $pattern
+    # 同 Start-GdArkClient：预览也要按进程名过滤，别让浏览器标签页冒充"端游窗口已存在"
+    $arkName = if ($S.paths.arknightsExe) { [System.IO.Path]::GetFileNameWithoutExtension([string]$S.paths.arknightsExe) } else { $null }
+    $win = Get-GdWindowByTitle -Pattern $pattern -ProcessName $arkName
     Write-GdLog ("  端游窗口：" + $(if ($win) { "已存在 [$($win.Name)#$($win.Id)] $($win.Title)" } else { "没有 → 会先启动 $($S.paths.arknightsExe) 再让 MAA 连" }))
 }
 
@@ -69,6 +71,13 @@ function Start-GdArkDaily {
     <# 真正跑一轮方舟：接管关闭 → 写配置 → 拉端游 → 跑 MAA → 该重试就重试 → 收尾。返回 @{Status;Detail;Duration} #>
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Decision)
     Write-GdLog '--- 方舟(端游 + MAA)---' -Level STEP
+    # 起跑前置判定(2026-09-26)：06:00 两轮都死在"会话被屏保/锁屏桌面接管"——输入进不来，
+    # MAA 必然报"未找到窗口"，端游启动+等待白烧 12 分钟。桌面不对就直接记 not-started 早退，把原因写全。
+    $desk = Get-GdInputDesktopName
+    if ($desk -and $desk -ne 'Default') {
+        Write-GdLog "跳过本轮：输入桌面=$desk(屏保/锁屏已接管会话，鼠标键盘进不来；读不到桌面名不会走这条)" -Level WARN
+        return @{ Status = 'not-started'; Duration = 0; Detail = "起跑时会话在 $desk 桌面(屏保/锁屏)，直接跳过；长期解法：Wallpaper Engine 取消「用作 Windows 屏保」或夜间保持解锁" }
+    }
     $ark = $Decision
     $arkName = [System.IO.Path]::GetFileNameWithoutExtension($S.paths.arknightsExe)
     Invoke-GdTakeover -S $S -Names @((Get-MaaPaths -S $S).Name, $arkName) -Label '方舟/MAA'

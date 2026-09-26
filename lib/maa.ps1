@@ -380,6 +380,23 @@ function Invoke-MaaRun {
                     $grabNote = '这棵树上没有抢前台的函数，只能等停滞判定'
                 }
                 Write-GdLog "端游没把点击吃进去($stuckTask 已重复 $stuckExec 次、整轮 $chanClicks 次点击)：$grabNote" -Level WARN
+                <#
+                  抢前台只解决"窗口收不到输入"这一种；另一种是"模板集里没收录的界面挡在路上"，
+                  那种情况下抢多少次前台都照样原地点击(2026-09-24 的中秋弹窗就是)。
+                  所以抢完前台立刻问一次画面，而不是干等 60 秒再 stalled —— 那 60 秒本来也不会自己变好。
+                  兜成功后 $chanGrabAt 就是"从现在再给 60 秒"，等于把这一轮的观察窗口往后推一次；
+                  次数由 $rescueLeft 卡着，兜完还是不动就照旧早退。
+                #>
+                if ($rescueLeft -gt 0 -and (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue)) {
+                    $rescueLeft--
+                    $rc = $null
+                    $whyStuck = "自动化在同一个子任务[$stuckTask]上重复点了 $stuckExec 次，一条链路都没完成"
+                    try { $rc = Invoke-GdVisionRescue -S $S -Tag "stuck$($rescues.Count + 1)" -Context $whyStuck }
+                    catch { $rc = [pscustomobject]@{ Tried = $false; Done = $false; Detail = "兜底抛异常：$($_.Exception.Message)" } }
+                    $rescues += $rc.Detail
+                    Add-GdRescueRecord -S $S -Game 'ark' -Result $rc -Tag "stuck$($rescues.Count + 1)" -Target 'ark'
+                    Write-GdLog "视觉兜底结果：$($rc.Detail)" $(if ($rc.Done) { 'OK' } else { 'WARN' })
+                }
             } elseif (((Get-Date) - $chanGrabAt).TotalSeconds -gt 60) {
                 return @{
                     Status = 'stalled'
@@ -404,9 +421,10 @@ function Invoke-MaaRun {
             if ($rescueLeft -gt 0 -and (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue)) {
                 $rescueLeft--
                 $rc = $null
-                try { $rc = Invoke-GdVisionRescue -S $S -Tag "drain$($rescues.Count + 1)" }
+                try { $rc = Invoke-GdVisionRescue -S $S -Tag "drain$($rescues.Count + 1)" -Context "MAA 自己说这一轮跑完了但报错，只完成 $doneCount/$($expectedCount.Count) 条链路，它不会再自己动" }
                 catch { $rc = [pscustomobject]@{ Tried = $false; Done = $false; Detail = "兜底抛异常：$($_.Exception.Message)" } }
                 $rescues += $rc.Detail
+                Add-GdRescueRecord -S $S -Game 'ark' -Result $rc -Tag "drain$($rescues.Count + 1)" -Target 'ark'
                 Write-GdLog "视觉兜底结果：$($rc.Detail)" $(if ($rc.Done) { 'OK' } else { 'WARN' })
             }
             return @{
@@ -433,6 +451,7 @@ function Invoke-MaaRun {
                 try { $rc = Invoke-GdVisionRescue -S $S -Tag "stall$($rescues.Count + 1)" }
                 catch { $rc = [pscustomobject]@{ Tried = $false; Done = $false; Detail = "兜底抛异常：$($_.Exception.Message)" } }
                 $rescues += $rc.Detail
+                Add-GdRescueRecord -S $S -Game 'ark' -Result $rc -Tag "stall$($rescues.Count + 1)" -Target 'ark'
                 Write-GdLog "视觉兜底结果：$($rc.Detail)" $(if ($rc.Done) { 'OK' } else { 'WARN' })
                 if ($rc.Done) {
                     $lastGrowth = Get-Date        # 挡路的东西拿掉了，停滞计时从头算，给 MAA 机会继续
@@ -466,7 +485,8 @@ function Start-GdArkClient {
     $name = [System.IO.Path]::GetFileNameWithoutExtension($exe)
     $pattern = if ($S.ark.windowTitlePattern) { [string]$S.ark.windowTitlePattern } else { '明日方舟|Arknights' }
 
-    $win = Get-GdWindowByTitle -Pattern $pattern
+    # 带进程名过滤：只认真·端游(Arknights.exe)，浏览器标签页撞标题不算
+    $win = Get-GdWindowByTitle -Pattern $pattern -ProcessName $name
     if ($win) { Write-GdLog "端游窗口已存在：[$($win.Name)#$($win.Id)] $($win.Title)"; return $true }
 
     if (Test-GdProcessRunning -Name $name) {
@@ -477,10 +497,10 @@ function Start-GdArkClient {
         Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe) | Out-Null
     }
 
-    $haveWindow = Wait-GdCondition -Test { [bool](Get-GdWindowByTitle -Pattern $pattern) } `
+    $haveWindow = Wait-GdCondition -Test { [bool](Get-GdWindowByTitle -Pattern $pattern -ProcessName $name) } `
         -TimeoutSeconds ([int]$S.runtime.arkWindowTimeoutSeconds) -PollSeconds 5 -What '端游窗口'
     if ($haveWindow) {
-        $win = Get-GdWindowByTitle -Pattern $pattern
+        $win = Get-GdWindowByTitle -Pattern $pattern -ProcessName $name
         Write-GdLog "端游窗口就绪：[$($win.Name)#$($win.Id)] $($win.Title)" -Level OK
         Start-Sleep -Seconds ([int]$S.runtime.arkWarmupSeconds)   # 让它自己登录/进主界面
         return $true

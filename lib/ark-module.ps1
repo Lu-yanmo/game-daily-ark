@@ -25,7 +25,12 @@ Register-GdModule ([pscustomobject]@{
         PathKeys         = @('maaDir')        # 该催的助手目录(口径要和 Get-GdRequiredPathKeys 一致)
         # 这一路的业务库，由入口在顶层 dot-source(函数里点的会连函数定义一起消失，见 modules.ps1 的 Import-GdModules)。
         # 只写内核不管的那三个：ark-decisions.ps1 归 lib\decisions.ps1 那个门面按文件在不在点，不重复列。
-        Libs             = @('maa.ps1', 'vision-rescue.ps1', 'ark-daily.ps1')
+        # vision-rescue.ps1 是两路共用的兜底内核(两份清单都写它，Get-GdModuleLibPaths 按文件名去重、只点一次)；
+        # vision-ark.ps1 只有这一路用(PrintWindow 拍端游窗口 + 抢前台真实点击)，即 New-GdVisionTarget-ark 的出处。
+        Libs             = @('maa.ps1', 'vision-rescue.ps1', 'vision-ark.ps1', 'ark-daily.ps1')
+        # 兜底后端的 kind(= New-GdVisionTarget-<kind>)。id 和 kind 不是一回事：1999 的兜底对象是"模拟器屏幕"，
+        # kind 叫 mumu 才对得上 adb 那条链。所以这层对照只写在各自清单里，外壳(tools\vision-ask.ps1)只问这一项。
+        VisionKind       = 'ark'
         EntryVerbs       = @{
             Merged = @{ Ack = '-AckArk'; ShopDone = '-ArkShopDone'; ShopReset = '-ArkShopReset' }
         }
