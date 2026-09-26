@@ -11,6 +11,14 @@
 # 契约(Enabled/Why/Shot/Click/Alive 各是什么形状)写在 lib\vision-rescue.ps1 的文件头。
 #
 # 依赖：调用方先点 lib\common.ps1 与 lib\vision-rescue.ps1(后者提供 Get-GdShotStats)。
+#
+# ── 冻结(2026-09-26，PS→C# 批次 4)────────────────────────────────────────────
+# 本文件只迁走一段：Get-GdArkDesktopState 的**文案拼装段**(桌面名三分支、前台归属、窗口状态、
+# 光标、'；'拼串与 Locked 的"不知道"语义) → verb compose-ark-desktop-state，住在 tools\panel-cs\Vision.cs。
+# 改那句人话请改 Vision.cs 并跑 tools\probe-vision-golden.ps1 对拍，不要在这里拼文案。
+# 故意留下的：P/Invoke 块(GdWin)、Get-GdArkWindow、Save-GdWindowShot、Send-GdArkClick、
+# Invoke-GdArkForegroundGrab、New-GdVisionTarget-ark —— 全是拍窗口/点窗口/闭包靶子的现场动作，
+# 而且 t14 把 P/Invoke 名单与 fnGrab 的 st.Detail 直接钉在函数定义文本上。
 
 $global:GdRescueTypeDef = $false
 
@@ -172,13 +180,11 @@ function Get-GdArkWindow {
 }
 
 function Get-GdArkDesktopState {
-    <# 一句话回答"这一轮的点击环境长什么样"：输入桌面叫什么 + 端游窗口在不在前台 + 谁占着前台 + 窗口本身的状态。
+    <# 转发壳(compose-ark-desktop-state)：一句话回答"这一轮的点击环境长什么样"。
+       现场量仍在这里现读(输入桌面名 / 前台归属 / 最小化 / 可见 / 窗口矩形 / 光标位置)，
+       但**怎么说**的那套规矩(桌面名读不到按"不知道"、三分支话术、'；'拼串)住在 Vision.cs。
        为什么要记它：无人值守那几轮(06:00)失败得一模一样 —— MAA 每 4 秒往 splash 的 START 点一下、点了 311 下、
        模板分始终 0.99、界面一步不动，而日志里没有当时"鼠标键盘到底进不进得来"的任何记录，事后只能猜。
-       被否掉的猜测有两个：一是"有个弹窗挡着"(视觉兜底当场拍到的是登录界面、没有窗口)；
-       二是"MAA 抢不到前台退化成 PostMessage 而端游不吃"(inject_input_event 其实全部来自基建左滑，
-       点击在成功轮里也一直是发消息 —— 见 lib\maa.ps1 的 Get-MaaAsstStuckState)。
-       剩下能分辨的就只有现场状态，所以把它一次记全：桌面名 / 前台归属 / 最小化 / 可见 / 窗口矩形 / 光标位置。
        纯读，不动任何窗口，也不联网。 #>
     param($Hwnd)
     Add-GdRescueTypeDef
@@ -190,39 +196,31 @@ function Get-GdArkDesktopState {
         $fgPid = [uint32][GdWin]::WindowPid($fg)
         if ($fgPid -gt 0) { $fgName = [string]((Get-Process -Id $fgPid -ErrorAction SilentlyContinue).ProcessName) }
     } catch { $fgName = '' }
-    # 桌面名字读不到时按"不知道"处理，别把它说成"锁屏了"——OpenInputDesktop 在个别环境会被安全策略挡
-    $locked = if ($desk) { ($desk -ne 'Default') } else { $null }
-    $bits = @()
-    if (-not $desk) { $bits += '输入桌面=读不到(无法判断是否锁屏)' }
-    elseif ($locked) { $bits += "输入桌面=$desk(会话不在正常桌面，鼠标键盘进不来)" }
-    else { $bits += '输入桌面=Default(未锁屏)' }
-
-    if (-not $Hwnd) {
-        $bits += '端游窗口没找到'
-    } else {
-        if ($onFg) { $bits += '端游在前台=是' }
-        else {
-            $who = if ($fgName) { $fgName } else { '未知窗口' }
-            $bits += "端游在前台=否(前台是 $who)"
-        }
-        # 窗口自己这一侧的状态：锁屏时这几项往往还是"可见 + 正常矩形"，所以它是用来**排除**"窗口没了/最小化了"的
-        $st = @()
-        if ([GdWin]::IsIconic([IntPtr]$Hwnd)) { $st += '最小化' }
-        if (-not [GdWin]::Visible([IntPtr]$Hwnd)) { $st += '不可见' }
-        $rc = [string]([GdWin]::WindowRectText([IntPtr]$Hwnd))
-        if ($rc) { $st += $rc }
-        if ($st.Count) { $bits += "端游窗口状态=" + ($st -join '/') }
-    }
     $cur = [string]([GdWin]::CursorText())
-    if ($cur) { $bits += "光标在 $cur" }
-
+    # 没句柄就别碰窗口调用：old 实现也是只在有窗口时才读这三项
+    $iconic = $false; $visible = $false; $rectText = ''
+    if ($Hwnd) {
+        $iconic = [bool][GdWin]::IsIconic([IntPtr]$Hwnd)
+        $visible = [bool][GdWin]::Visible([IntPtr]$Hwnd)
+        $rectText = [string]([GdWin]::WindowRectText([IntPtr]$Hwnd))
+    }
+    $d = Invoke-GdCli -Verb 'compose-ark-desktop-state' -Body ([pscustomobject]@{
+        desk      = $desk
+        hwndFound = [bool]$Hwnd
+        onFg      = [bool]$onFg
+        fgProcess = $fgName
+        iconic    = $iconic
+        visible   = $visible
+        rectText  = $rectText
+        cursor    = $cur
+    })
     return [pscustomobject]@{
         Desktop    = $desk
-        Locked     = $locked
+        Locked     = $d.Locked      # $null=读不到桌面名("不知道")，不是"锁屏了"；真值由 C# 那三分支给
         GameOnFg   = [bool]$onFg
         FgProcess  = $fgName
         Cursor     = $cur
-        Detail     = $bits -join '；'
+        Detail     = [string]$d.Detail
     }
 }
 

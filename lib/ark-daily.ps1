@@ -9,6 +9,17 @@
 # 依赖：调用方先点 lib\common.ps1、lib\ark-decisions.ps1(或聚合的 lib\decisions.ps1)、lib\maa.ps1。
 # 这里不重复点，理由见 lib\decisions.ps1 开头的说明(重复点会把控制台编码再设一遍，白做工)。
 # 拆单游戏仓库时，本文件 + ark-decisions + maa + common 就是方舟的全部依赖，不碰 m9a/mumu。
+#
+# ── 冻结(2026-09-27，PS→C# 批次 5)────────────────────────────────────────────
+# Resolve-GdArkDecision 的**构造段规则**(-Stage 手造 manual、-Force 跳确认门、farm 专用轮重建、
+# 需求优先去重合并、两段 WARN 文案)已迁到 tools\panel-cs\Orchestration.cs
+# (verb：apply-ark-daily-intent；契约见 docs\ps-migration-batch0.md)。
+# 壳里留的是"活"：Get-ArkEvent 取数、Resolve-GdArkFarmDecision(读账本/纠偏)、Farm 对象挂回、
+# "方舟方案：…"日志行；Set-Gd*Ack/ShopState 与 Start-GdArkDaily 整函数留壳(起进程/写配置归后续批次)。
+# 分两次调 verb 是刻意的：旧代码算 farmOpt 用的是 manual/force 变换**之后**的 ark ——
+# -Stage 时旧代码不会进 append 档，一次调用会把这条顺序语义弄丢。改规则请改 C# 并跑
+# tools\probe-orch-golden.ps1 对拍，不要在这里加规则。
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Set-GdArkAck {
     <# -AckArk：确认"这个活动的图我自己手动打过了" → 之后日常才允许自动刷活动关卡 #>
@@ -40,17 +51,16 @@ function Set-GdArkShopState {
 }
 
 function Resolve-GdArkDecision {
-    <# 命令行意图 -> 本轮方舟方案(含 -Stage 手动指定、-Force 跳过确认门、-Farm 专用材料轮)，并把"方舟方案：…"写进日志。
+    <# 转发壳(批次 5)：命令行意图 -> 本轮方舟方案的**构造规则**在 C#(apply-ark-daily-intent)，
+       且按旧代码的顺序分两步喂：第一步只过 manual/force 变换，第二步拿变换后的 ark 去算 farmOpt 再过 farm 档。
        参数故意叫 -Stage / -Farm 而不是 -ArkStage / -ArkFarm：本文件只管方舟，带游戏前缀的名字留给合体入口 daily-clear.ps1。 #>
     param([Parameter(Mandatory)]$S, [string]$Stage, [switch]$Force, [switch]$Farm)
     $ark = Get-ArkEvent -S $S
-    if ($Stage) {
-        $ark = [pscustomobject]@{ Mode = 'manual'; Stage = $Stage; StageHint = $Stage; ClearSanity = $true; Reason = "命令行指定刷 $Stage"; EventKey = $null; EventTip = $null; Source = 'manual' }
-    }
-    if ($Force -and $ark.Mode -eq 'event-pending') {
-        $ark = [pscustomobject]@{ Mode = 'event'; Stage = $ark.StageHint; StageHint = $ark.StageHint; ClearSanity = $true; Reason = "(-Force) 跳过活动确认门，直接刷 $($ark.StageHint)"; EventKey = $ark.EventKey; EventTip = $ark.EventTip; Source = $ark.Source }
-        Write-GdLog '-Force：本轮忽略活动确认门' -Level WARN
-    }
+    $d1 = Invoke-GdCli -Verb 'apply-ark-daily-intent' -Body ([pscustomobject]@{
+        ark = $ark; stage = $Stage; force = [bool]$Force; farm = $false; farmOpt = $null
+    })
+    $ark = $d1.Ark
+    foreach ($w in @($d1.Warnings)) { Write-GdLog $w -Level WARN }
 
     <# 材料补刷(ark-farm)：-Farm=专用轮(整条 Fight 就刷这些关)，否则长草方案上顺带追加。
        功能没装(这棵树没有 ark-farm.ps1)或本轮不该刷 → $farmOpt 为 $null，方案原样不动。 #>
@@ -58,31 +68,15 @@ function Resolve-GdArkDecision {
     if (Get-Command Resolve-GdArkFarmDecision -ErrorAction SilentlyContinue) {
         $farmOpt = Resolve-GdArkFarmDecision -S $S -Decision $ark -Dedicated:$Farm
     }
-    if ($Farm) {
-        if ($farmOpt) {
-            $fs = @($farmOpt.Stages)
-            $ark = [pscustomobject]@{
-                Mode = 'farm'; Stage = ($fs -join ','); StageHint = ($fs -join ','); ClearSanity = $true
-                Reason = "材料补刷专用轮 — $($farmOpt.Reason)"; EventKey = $ark.EventKey; EventTip = $ark.EventTip
-                Source = $ark.Source; Farm = $farmOpt; FarmMode = 'dedicated'
-            }
-        } else {
-            Write-GdLog '-Farm 本轮没有可补的材料 → 按原方案跑' -Level WARN
-            $ark | Add-Member -NotePropertyName Farm -NotePropertyValue $null
-            $ark | Add-Member -NotePropertyName FarmMode -NotePropertyValue ''
-        }
-    } elseif ($farmOpt) {
-        # 需求优先档(2026-09-26 改)：farm 关排进理智计划最前(去重)，长草关在后 ——
-        # MAA 的「剩余理智」按 StagePlan 顺序轮换，排最前=当天理智先保证缺口材料。
-        # 停止不靠计划位置：接线层(maa.ps1)同时打开 MAA 原生「目标库存」计数，凑够即停。farm 关掉不进活动/manual。
-        $base = @((([string]$ark.Stage) -split '[,，、;；\s]+' | Where-Object { $_ }))
-        $merged = @()
-        foreach ($st in @($farmOpt.Stages)) { if ($merged -notcontains $st) { $merged += $st } }
-        foreach ($st in $base) { if ($merged -notcontains $st) { $merged += $st } }
-        $ark | Add-Member -NotePropertyName Stage -NotePropertyValue ($merged -join ',') -Force
-        $ark | Add-Member -NotePropertyName Reason -NotePropertyValue "$($ark.Reason)；需求优先 $($farmOpt.Reason)" -Force
+    $d2 = Invoke-GdCli -Verb 'apply-ark-daily-intent' -Body ([pscustomobject]@{
+        ark = $ark; stage = ''; force = $false; farm = [bool]$Farm; farmOpt = $farmOpt
+    })
+    foreach ($w in @($d2.Warnings)) { Write-GdLog $w -Level WARN }
+    $ark = $d2.Ark
+    if ($d2.HasFarmFields) {
+        # Farm 挂**原 PS 对象**而不是 JSON 回读件：接线层(maa.ps1)要拿它读 TargetDrop/TimesLimit 的现场形状
         $ark | Add-Member -NotePropertyName Farm -NotePropertyValue $farmOpt
-        $ark | Add-Member -NotePropertyName FarmMode -NotePropertyValue 'append'
+        $ark | Add-Member -NotePropertyName FarmMode -NotePropertyValue ([string]$d2.FarmMode)
     }
     Write-GdLog "方舟方案：$($ark.Mode) — $($ark.Reason)"
     return $ark

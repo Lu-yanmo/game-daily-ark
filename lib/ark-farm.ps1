@@ -12,6 +12,17 @@
 #
 # 依赖：调用方先点 lib\common.ps1 + lib\ark-decisions.ps1(关卡校验) + lib\maa.ps1(Get-MaaPaths)。
 # 纯函数(Parse-*/Resolve-ArkFarmPlan)不碰文件，给 tools\test-ark.ps1 喂假数据断言。
+#
+# ── 冻结(2026-09-27，PS→C# 批次 5)────────────────────────────────────────────
+# Parse-GdArkFarmTargetSpec / Parse-GdArkDropText / Resolve-ArkFarmPlan 的**规则本体**
+# 已迁到 tools\panel-cs\Orchestration.cs(verb：parse-farm-target-spec / parse-ark-drop-text /
+# resolve-ark-farm-plan；契约见 docs\ps-migration-batch0.md)。本文件留下的这三个函数只是转发壳：
+# 负责把规则需要的**值**(目标清单原始项、账本三张表、关卡校验表)组装好送进 C#，再把信封 data 交回。
+# 所以：改判表/改文案请改 C# 那份并跑 tools\probe-orch-golden.ps1 对拍，不要在这里加规则。
+# 留在 PS 侧的是活层：Get-GdArkItemMaps/Read-GdArkFarmLedger/Update-GdArkFarmLedger(文件 IO 与记账)、
+# Sync-GdArkFarmHaveFromDepot(DepotData 纠偏)、Resolve-GdArkFarmDecision(farmAppend 开关与档位判定)、
+# Get-GdArkFarmTargetsNormalized(循环壳) —— 起进程/读盘/写盘归编排层后续批次。
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Get-GdArkFarmInventoryPath { Join-Path $global:GD.State 'ark-inventory.json' }
 function Get-GdArkFarmDropTablePath { Join-Path $global:GD.State 'ark-droptable.json' }
@@ -42,64 +53,19 @@ function Get-GdArkItemMaps {
 }
 
 function Parse-GdArkFarmTargetSpec {
-    <# 一行目标清单 → @{Key;Target;Stages;Bad}。吃三种写法：
-         "D32钢=30"、"D32钢=30@CE-5"、"30135=30@CE-5,CE-4"(键是材料名或 MAA 材料代号)；
-       也吃 json 对象 { item/target/stages }。解析不动的返回 Bad 说明，调用方汇总着说，不静默丢。 #>
+    <# 转发壳(批次 5)：一行目标清单 → @{Key;Target;Stages;Bad}，三种写法与拒绝文案的规则在
+       C#(parse-farm-target-spec)。Found:false = 旧语义的"整行作废返回 `$null`(Raw 缺失/空串)"。 #>
     param($Raw)
-    if ($null -eq $Raw) { return $null }
-    if ($Raw -is [string]) {
-        $t = $Raw.Trim()
-        if (-not $t) { return $null }
-        if ($t -match '^(?<k>.+?)\s*[=＝]\s*(?<n>\d+)(?:\s*@\s*(?<s>.+))?$') {
-            $stages = @()
-            if ($Matches.s) { $stages = @($Matches.s -split '[,，、;；\s]+' | Where-Object { $_ }) }
-            return @{ Key = $Matches.k.Trim(); Target = [int]$Matches.n; Stages = $stages; Raw = $t; Bad = '' }
-        }
-        return @{ Key = ''; Target = 0; Stages = @(); Raw = $t; Bad = "看不懂「$t」，要写成 材料名=数量[@关卡1,关卡2]" }
-    }
-    $k = [string](Get-GdMapValue $Raw 'item'); if (-not $k) { $k = [string](Get-GdMapValue $Raw 'name') }
-    $n = 0; [void][int]::TryParse([string](Get-GdMapValue $Raw 'target'), [ref]$n)
-    if (-not $n) { [void][int]::TryParse([string](Get-GdMapValue $Raw 'count'), [ref]$n) }
-    $s = @(Get-GdMapValue $Raw 'stages')
-    if ($s.Count -eq 1 -and $s[0] -is [string]) { $s = @(($s[0] -split '[,，、;；\s]+' | Where-Object { $_ })) }
-    if (-not $k) { return @{ Key = ''; Target = 0; Stages = @(); Raw = ($Raw | ConvertTo-Json -Compress); Bad = '条目里没有材料名/代号(item)' } }
-    if ($n -le 0) { return @{ Key = $k; Target = 0; Stages = $s; Raw = "$k"; Bad = "$k 的目标数量没写或不是正整数" } }
-    return @{ Key = $k; Target = $n; Stages = @($s); Raw = "$k=$n"; Bad = '' }
+    $d = Invoke-GdCli -Verb 'parse-farm-target-spec' -Body ([pscustomobject]@{ raw = $Raw })
+    if (-not $d.Found) { return $null }
+    return $d.Spec
 }
 
 function Parse-GdArkDropText {
-    <# 纯函数：gui.log 片段 → 掉落块数组 @{Stage; Items=@(@{Name;Delta})}。
-       实测形状(2026-09-26 从真 gui.log 抄的，这里全是编的数据)：
-         [08:50:26] PR-B-2 掉落统计:
-         术师芯片组 : 2 (+2)   狙击芯片组 : 1 (+1)   当前次数 : 3
-       只认 (+N) 的增量记账；"当前次数/理智/用时"这类同名不同物的行靠拒绝表挡掉。
-       块头只按「<代号> 掉落统计」抓关卡代号，抓不到就把 Stage 记空(掉还是记，只丢学习关系)。 #>
+    <# 转发壳(批次 5)：gui.log 片段 → 掉落块数组 @{Stage;Items}，剥前缀/块头/配对正则/拒绝表的
+       规则在 C#(parse-ark-drop-text)。空片段照旧回空数组。 #>
     param([string]$Text)
-    $blocks = @()
-    if ([string]::IsNullOrWhiteSpace($Text)) { return $blocks }
-    $cur = $null
-    foreach ($line in ($Text -split "`r?`n")) {
-        $s = $line.Trim()
-        if (-not $s) { continue }
-        $s = ($s -replace '^\[[^\]]*\]\s*', '') -replace '^<\d+>\s*', ''
-        if ($s -match '([A-Za-z0-9][A-Za-z0-9\-]*)\s*掉落统计') {
-            # 块必须是 [pscustomobject]：hashtable += 进数组会被摊开成一个个字典项(老坑，见记忆)
-            $cur = [pscustomobject]@{ Stage = $Matches[1]; Items = @() }
-            $blocks += $cur
-            continue
-        }
-        if (-not $cur) { continue }
-        $pairs = @([regex]::Matches($s, '([^\s:：,，、;()（）+]+)\s*[::]\s*(\d+)(?:\s*[（(]\s*\+(\d+)\s*[）)])?'))
-        if ($pairs.Count -eq 0) { $cur = $null; continue }   # 掉落块是连续的，出现不像配额的行就算块结束了
-        foreach ($m in $pairs) {
-            $nm = $m.Groups[1].Value
-            if ($nm -in @('当前次数', '理智', '剩余理智', '用时', '预计', '累计理智')) { continue }
-            $delta = 0
-            if ($m.Groups[3].Success) { $delta = [int]$m.Groups[3].Value }
-            $cur.Items = @($cur.Items) + [pscustomobject]@{ Name = $nm; Delta = $delta }
-        }
-    }
-    return $blocks
+    return (Invoke-GdCli -Verb 'parse-ark-drop-text' -Body ([pscustomobject]@{ text = $Text })).Blocks
 }
 
 function Read-GdArkFarmLedger {
@@ -226,11 +192,9 @@ function Update-GdArkFarmLedger {
 }
 
 function Resolve-ArkFarmPlan {
-    <# 纯判定(不联网、不写盘)：目标清单 + 账本 + 学习表 → 本轮补刷方案。
-       一次只锁一个目标(MAA 一条 Fight 链只有一个指定材料位)，选"还差最多"的那个；
-       刷哪关：显式填的 > 从掉落学习表里挑(每关平均掉最多、其次见得多的) > 不刷并说为什么。
-       次数 = ceil(缺口 / 每场平均掉落)，封顶 MaxTimes —— 它只是 TimesLimit 的护栏，
-       真正的止损是"专用轮里理智本身就有限"。 #>
+    <# 转发壳(批次 5)：判表(一次只锁缺口最大、挑关排序、次数折算与封顶、全部文案)的规则在
+       C#(resolve-ark-farm-plan)。这里保持**旧签名不变**(test-ark 直接按命名参数喂假数据)，
+       只把八样值装进信封；返回信封 data(PSCustomObject，属性名与顺序和旧版逐字一致)。 #>
     param(
         # 不写 Mandatory：最常见的第一跑就是"清单还没配"的空数组，Mandatory 会把空集合直接拒在参数绑定上
         [array]$Targets,
@@ -239,82 +203,16 @@ function Resolve-ArkFarmPlan {
         $DropTable = @{}, $KnownStages = @{},
         [int]$MaxTimes = 12
     )
-    $none = {
-        param($Why) [pscustomobject]@{ Active = $false; Reason = $Why; ItemId = ''; ItemName = ''; Have = 0; Target = 0; Gap = 0; Stages = @(); Times = 0 }
-    }
-    if ($MaxTimes -lt 1) { $MaxTimes = 1 }
-    if (-not $Targets -or @($Targets).Count -eq 0) { return (& $none '没配 ark.farmTargets → 材料补刷未启动') }
-
-    $notes = @(); $best = $null
-    foreach ($t in $Targets) {
-        if ([string]$t.Bad) { $notes += "跳过「$($t.Raw)」：$($t.Bad)"; continue }
-        $id = ''; $nm = [string]$t.Key
-        if ($t.Key -match '^\d{3,8}$') {
-            $id = $t.Key
-            if ($IdToName.ContainsKey($id)) { $nm = [string]$IdToName[$id] }
-        } elseif ($NameToId.ContainsKey($t.Key)) { $id = [string]$NameToId[$t.Key] }
-        if (-not $id) { $notes += "跳过「$($t.Raw)」：材料名在 MAA 材料表(item_index)里找不到"; continue }
-
-        # 非泛型 Hashtable 没有 TryGetValue(5.1/7 都一样)，只能 ContainsKey 两步走
-        $have = 0
-        if ($Inventory.ContainsKey($id)) { $have = [int]$Inventory[$id] }
-        $gap = [int]$t.Target - $have
-        if ($gap -le 0) { $notes += "$nm 已够($have/$($t.Target))"; continue }
-
-        $stages = @($t.Stages)
-        if (-not $stages.Count) {
-            # 没填关卡 → 从学习表挑：平均每场掉得最多的优先，并列取见得多的；最多挑 2 关
-            # 契约：判定层所有映射参数都是 hashtable(IO 层产出的就是 hashtable，非 JSON 对象)
-            $learned = @()
-            if ($DropTable.ContainsKey($id)) {
-                foreach ($st in @($DropTable[$id].Keys)) {
-                    $v = $DropTable[$id][$st]
-                    $runs = [int](Get-GdMapValue $v 'runs'); $qty = [int](Get-GdMapValue $v 'qty')
-                    if ($runs -gt 0 -and $qty -gt 0) { $learned += [pscustomobject]@{ Stage = $st; Avg = ($qty / $runs); Runs = $runs } }
-                }
-            }
-            $stages = @($learned | Sort-Object @{ Expression = 'Avg'; Descending = $true }, @{ Expression = 'Runs'; Descending = $true } | Select-Object -First 2 -ExpandProperty Stage)
-            if (-not $stages.Count) { $notes += "$nm 还差 $gap，但不知道该刷哪关(清单里没填、掉落账本也没教过) → 把它写成 $($t.Raw)@CE-5 这种带关卡的形式"; continue }
-        }
-        $badSt = @()
-        if ($KnownStages.Count) { $badSt = @($stages | Where-Object { -not $KnownStages.ContainsKey($_) }) }
-        $stOk = @($stages | Where-Object { $badSt -notcontains $_ })
-        if (-not $stOk.Count) { $notes += "$nm 还差 $gap，但关卡 $($badSt -join '/') 不被 MAA 关卡表认识 → 先更 MAA 资源或改 farmTargets"; continue }
-
-        # 每场平均掉落：只按真正会刷到的关算；没学习数据就按 1 估并明说
-        $tq = 0; $tr = 0
-        if ($DropTable.ContainsKey($id)) {
-            foreach ($st in $stOk) {
-                $v = Get-GdMapValue $DropTable[$id] $st
-                if ($v) { $tq += [int](Get-GdMapValue $v 'qty'); $tr += [int](Get-GdMapValue $v 'runs') }
-            }
-        }
-        $avg = 1.0; $avgNote = '掉落率未知，按每场 1 估'
-        if ($tr -gt 0) { $avg = [Math]::Max($tq / $tr, 0.1); $avgNote = "按学习到的每场约 $([Math]::Round($avg, 1))" }
-        $times = [int][Math]::Ceiling($gap / $avg)
-        $capNote = ''
-        if ($times -gt $MaxTimes) { $times = $MaxTimes; $capNote = "(单轮封顶 $MaxTimes，剩下的明天接着刷)" }
-
-        $cand = [pscustomobject]@{ Active = $true; ItemId = $id; ItemName = $nm; Have = $have; Target = [int]$t.Target; Gap = $gap; Stages = $stOk; Times = $times; Avg = $avg; AvgNote = $avgNote; CapNote = $capNote; BadStages = $badSt }
-        if (-not $best -or $gap -gt $best.Gap) { $best = $cand }
-    }
-    if (-not $best) {
-        $why = '本轮没有要补刷的材料'
-        if ($notes.Count) { $why = "本轮没有要补刷的材料：$($notes -join '；')" }
-        return (& $none $why)
-    }
-    $originNote = ''
-    if ([string]$Origin[$best.ItemId] -eq 'depot') { $originNote = '(现值来自库存缓存标定，是估算)' }
-    $badNote = ''
-    if (@($best.BadStages).Count) { $badNote = "；已剔除不认识的关卡 $($best.BadStages -join '/')" }
-    [pscustomobject]@{
-        Active = $true
-        ItemId = $best.ItemId; ItemName = $best.ItemName
-        Have = $best.Have; Target = $best.Target; Gap = $best.Gap
-        Stages = $best.Stages; Times = $best.Times
-        Reason = "补刷 $($best.ItemName)×$($best.Times) @$($best.Stages -join ',')：目标 $($best.Target)，现有 $($best.Have)$originNote，还差 $($best.Gap)，$($best.AvgNote)$($best.CapNote)$badNote"
-        Notes = $notes
-    }
+    return Invoke-GdCli -Verb 'resolve-ark-farm-plan' -Body ([pscustomobject]@{
+        targets = $Targets
+        nameToId = $NameToId
+        idToName = $IdToName
+        inventory = $Inventory
+        origin = $Origin
+        dropTable = $DropTable
+        knownStages = $KnownStages
+        maxTimes = $MaxTimes
+    })
 }
 
 function Get-GdArkFarmTargetsNormalized {

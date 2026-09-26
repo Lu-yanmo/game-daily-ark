@@ -10,6 +10,14 @@
 # 故意留在 PS 侧的：Get-MaaPaths(读配置)、Invoke-MaaRun/Start-GdArkClient/Stop-MaaAndGame
 # (起进程、轮询、视觉兜底、进程树收尾 —— 归批次 5 编排层)。
 # ──────────────────────────────────────────────────────────────────────────────
+#
+# ── 追加冻结(2026-09-27，PS→C# 批次 5)────────────────────────────────────────
+# Invoke-MaaRun 轮询里"每行 gui.log 是什么"的分类段(五种标志的顺序判定、清洗正则、benign 命中、
+# marker/logChars 计数)已迁到 tools\panel-cs\Orchestration.cs(verb：parse-maa-gui-lines)。
+# 监控循环本体(Start-Process/轮询/兜底/asst.log 线索/早退判定)仍留本文件 —— 那是"活段"，后续批次再谈。
+# test-ark 钉着本文件必须原样存在 `Status = 'unknown-format'` 字面(unknown-format 早退分支故意留壳)，
+# 改壳时别把它"顺手搬走"。改分类规则请改 C# 并跑 tools\probe-orch-golden.ps1 对拍。
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Get-MaaPaths {
     param([Parameter(Mandatory)]$S)
@@ -203,54 +211,55 @@ function Invoke-MaaRun {
         if ($tail.Text) {
             $lastGrowth = Get-Date
             $seen += $tail.Text
-            $lines = @($tail.Text -split "`r?`n")
-            for ($i = 0; $i -lt $lines.Count; $i++) {
-                $line = $lines[$i]
-                if (-not $line.Trim()) { continue }
-                $logChars += $line.Length
-                if ($line -match '任务已全部完成') {
-                    $markers++
-                    $finished = $true
-                    $used = ''
-                    if ($i + 1 -lt $lines.Count -and $lines[$i + 1] -match '用时\s*([^)]+)') { $used = $Matches[1].Trim() }
-                    Write-GdLog "MAA 宣布任务全部完成$(if ($used) { "(内部计时 $used)" })" -Level OK
-                }
-                elseif ($line -match 'Completed Task Chain:\s*([A-Za-z]+)') {
-                    $markers++
-                    $chain = $Matches[1]
-                    if (-not $completed.ContainsKey($chain)) { $completed[$chain] = 0 }
-                    $completed[$chain]++
-                    Write-GdLog "MAA 完成链路：$chain"
-                }
-                elseif ($line -match '无更新|已停滞') {
-                    $markers++
-                    $stallWarn = (($line -replace '^.*?<\d+>\s*', '') -replace '\s+', ' ').Trim()
-                    Write-GdLog "MAA 停滞告警：$stallWarn" -Level WARN
-                }
-                elseif ($line -match '任务已完成，但出现错误') {
-                    <#
-                      MAA 把整条队列跑空了、但过程中有链路报错 —— 它不会自己再跑第二遍。
-                      这一句和「任务已全部完成」是两种收尾，早先只认后者，于是这种局要一直等到
-                      「asst.log 静默 22 分钟」才反应得过来(2026-09-25 07:53 那轮实测：6 条链路 0 完成，
-                      07:56:46 就打出这句，脚本却傻等到 08:19)。认下来，下面立刻处理。
-                    #>
-                    $markers++
-                    $drained = $true
-                    Write-GdLog 'MAA 宣布本轮已跑完但有错误(队列已空，它不会再自己动)' -Level WARN
-                }
-                elseif ($line -match '\[ERR\]|任务失败|Exception|连接失败') {
-                    $markers++
-                    $msg = ($line -replace '^.*?\]\s*', '') -replace '^\d+\s*', ''
-                    # MAA 有几条 ERR 级前缀其实是正常噪音(实测随后链路照样完成)，别混进"异常线索"里
-                    $benign = @($S.runtime.benignMaaErrors | Where-Object { $msg -match $_ })
-                    if ($msg -and $benign.Count -eq 0) {
+            <# 批次 5：这段"每行是什么标志"的分类规则在 C#(parse-maa-gui-lines)，
+               壳只把事件按行序回灌成本轮状态并打日志 —— 判定顺序/清洗/计数语义逐字对齐旧实现，
+               改规则去改 Orchestration.cs 并跑 tools\probe-orch-golden.ps1。 #>
+            $g = Invoke-GdCli -Verb 'parse-maa-gui-lines' -Body ([pscustomobject]@{
+                text = $tail.Text
+                benign = @($S.runtime.benignMaaErrors)
+            })
+            $markers += [int]$g.Markers
+            $logChars += [int]$g.LogChars
+            foreach ($ev in @($g.Events)) {
+                switch ([string]$ev.Kind) {
+                    'finished' {
+                        $finished = $true
+                        Write-GdLog "MAA 宣布任务全部完成$(if ($ev.Used) { "(内部计时 $($ev.Used))" })" -Level OK
+                    }
+                    'chain' {
+                        $chain = [string]$ev.Chain
+                        if (-not $completed.ContainsKey($chain)) { $completed[$chain] = 0 }
+                        $completed[$chain]++
+                        Write-GdLog "MAA 完成链路：$chain"
+                    }
+                    'stall' {
+                        $stallWarn = [string]$ev.Msg
+                        Write-GdLog "MAA 停滞告警：$stallWarn" -Level WARN
+                    }
+                    'drained' {
+                        <#
+                          MAA 把整条队列跑空了、但过程中有链路报错 —— 它不会自己再跑第二遍。
+                          这一句和「任务已全部完成」是两种收尾，早先只认后者，于是这种局要一直等到
+                          「asst.log 静默 22 分钟」才反应得过来(2026-09-25 07:53 那轮实测：6 条链路 0 完成，
+                          07:56:46 就打出这句，脚本却傻等到 08:19)。认下来，下面立刻处理。
+                          匹配字面"任务已完成，但出现错误"已搬进 Orchestration.cs 的 parse-maa-gui-lines，
+                          这里留原话给 t15 断言认锚 —— 改话术改 C#，别动这里的引文。
+                        #>
+                        $drained = $true
+                        Write-GdLog 'MAA 宣布本轮已跑完但有错误(队列已空，它不会再自己动)' -Level WARN
+                    }
+                    'error' {
                         if ($errors.Count -lt 40) {
-                            $errors += $msg.Trim()
-                            Write-GdLog "MAA 异常线索：$($msg.Trim())" -Level WARN
+                            $errors += [string]$ev.Msg
+                            Write-GdLog "MAA 异常线索：$($ev.Msg)" -Level WARN
                         }
-                    } elseif ($msg -and -not $benignSeen.ContainsKey($benign[0])) {
-                        $benignSeen[$benign[0]] = $true
-                        Write-GdLog "MAA 噪音(已按 benignMaaErrors 忽略)：$($msg.Trim())"
+                    }
+                    'benign' {
+                        # MAA 有几条 ERR 级前缀其实是正常噪音(实测随后链路照样完成)，别混进"异常线索"里
+                        if (-not $benignSeen.ContainsKey([string]$ev.Pattern)) {
+                            $benignSeen[[string]$ev.Pattern] = $true
+                            Write-GdLog "MAA 噪音(已按 benignMaaErrors 忽略)：$($ev.Msg)"
+                        }
                     }
                 }
             }
