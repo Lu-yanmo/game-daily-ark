@@ -73,6 +73,7 @@ C# 面板另有三个不弹窗的自检：`tools\panel-cs\panel-cs.exe --selftes
 .\daily-clear.ps1 -Ack                 # 「新活动我手动打过了」→ 之后每天自动刷活动图
 .\daily-clear.ps1 -ShopDone            # 「活动商店我已领空」→ 之后不再刷活动，剩余理智转长草
 .\daily-clear.ps1 -ShopReset           # 误标了/活动又开新一批兑换 → 撤销领空标记
+.\daily-clear.ps1 -Farm                # 本轮只刷目标材料缺口（ark.farmTargets 配的目标，见 3.5）
 .\daily-clear.ps1 -Stage SK-5          # 临时指定刷某个关卡
 .\daily-clear.ps1 -SkipCleanup         # 跑完不关端游（自己接着玩）
 .\daily-clear.ps1 -NoElevate           # 禁止自动提权（只想看输出）
@@ -234,6 +235,26 @@ MAA 认界面靠模板匹配，**它的模板集里没有的东西它就看不�
 标记按活动 id / 版本号记（`state\ark-shop-done.json`），新版本或新活动自动不适用，**不用记得回来取消**；恢复刷活动用 `-ShopReset`。
 不想用这道门：`ark.shopDoneStopsEvent` 改 `false`。
 
+**3.5 智能补材料**（对标 1999 那边 M9A 的「智能均衡刷材料」）
+
+在 `config\settings.json` 的 `ark.farmTargets` 里列出想要的材料，脚本负责「刷到数为止」：
+
+```json
+"farmTargets": ["D32钢=30@CE-5", "30115=20"]
+```
+
+- 写法：`材料名=目标总数`，`@关卡` 可选（可填多关，逗号分隔）。材料名按 MAA 的 `resource\item_index.json`
+  认，也可以直接写数字代号；关卡不填就从掉落学习账本挑「每场平均掉得最多」的关（最多 2 关），账本还没教过
+  就明确说不知道该刷哪关，不会瞎猜。
+- 现有量是自家账本 `state\ark-inventory.json` 从 MAA 每关结算日志的 `(+N)` 增量累计出来的；
+  首跑若 MAA 有库存缓存（`data\DepotData.json`）会拿它标定一次初值，并在提示里标「是估算」。
+- 两种刷法都只烧当天理智，**都不吃药**：
+  - 顺带（默认，`ark.farmAppend=true`）：长草日的理智计划尾部自动拼上 farm 关，活动期不挤占；
+  - 专用：`.\daily-clear.ps1 -Farm` 本轮 Fight 链只刷缺口材料，并打开 MAA 原生的
+    「指定材料刷到 N（按本次出击掉落计数）」+「刷取次数上限」双保险，单轮场次封顶
+    `ark.farmMaxTimesPerRound`（默认 12），剩下的明天接着刷。
+- 判表结果在 `status.ps1` 的「材料补刷」行和 DryRun 预览里都能看到；缺口逐日从记账里减，凑够即停。
+
 这道门必须手动：MAA 的活动接口只给「活动在不在开、哪些关掉代币」，看不到你的商店兑换进度；
 游戏里也没有可靠的「商店已空」信号（MAA 日志里根本没有活动商店相关记录），猜出来的只会误判。
 
@@ -320,6 +341,7 @@ pwsh -File install-task.ps1 -Uninstall
   lib\detect.ps1       安装位置探测：进程 → 卸载表 → 磁盘浅层扫描
   lib\decisions.ps1    今天刷什么：活动窗口、确认门、关卡校验
   lib\maa.ps1          MAA 队列改写 + 启动 + gui.log 判定
+  lib\ark-farm.ps1     智能补材料（见 3.5）：目标清单解析、从 MAA 结算日志记掉落账、缺口→选关方案
   lib\vision-rescue.ps1 卡住时的视觉兜底公共层（问模型→抠 JSON→换算点位→点一下→比对画面；见第 2.1 节，不想要就关）
   lib\vision-ark.ps1  兜底的端游后端：PrintWindow 拍窗口 + 抢前台真实点击（要管理员，跟端游本身一致）
   lib\supervisor.ps1  监督 agent（见第 2.3 节）：证据→状态→动作三段纯函数 + 起停/记账；不点鼠标，干预只有重启 MAA 一种

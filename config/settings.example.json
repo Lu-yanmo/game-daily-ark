@@ -4,6 +4,7 @@
     "paths.maaDir 和 paths.arknightsExe 必填：留空的话 daily-clear.ps1 会在「环境检查」那一步停下来告诉你缺哪一项。",
     "所有路径都是绝对路径；换电脑/换目录只改这里。",
     "ark.defaultStage / ark.planByWeekday 支持逗号分隔的多关卡，MAA 的『剩余理智』会按列表顺序轮换着刷完全部理智。",
+    "ark.farmTargets: 「智能补材料」的目标清单，形如 [\"D32钢=30@CE-5\", \"30135=12@CE-5,CE-4\"](材料名或代号=想要的总数@可选的关卡)。持有数从 MAA 结算日志累计(首轮可用 MAA 库存缓存标定，标「估算」)；刷哪关没填时从掉落学习表挑每场掉得最多的。日常顺带(ark.farmAppend=true，只在长草日追加、活动期不挤占)之外，还可以显式只刷缺口：daily-clear.ps1 -Farm。ark.farmMaxTimesPerRound 是单轮最多刷几场的封顶(默认 12)。",
     "ark.planByWeekday: 键为星期几（1=周一 ... 7=周日），值为该日要刷的关卡代号；未配置的星期回落到 defaultStage。",
     "关卡代号已按 MAA 自带 resource/stages.json 核对：CE-5 龙门币 / LS-5 作战记录(经验) / SK-5 碳素 / CA-5 技巧概要，均为 30 理智、常驻每日可刷。",
     "材料本轮哪些天开放由游戏服务端决定，脚本不猜；想固定刷某种材料，就把当天开放的关卡代号填进 planByWeekday。",
@@ -43,6 +44,9 @@
     "eventRequiresAck": true,
     "shopDoneStopsEvent": true,
     "windowTitlePattern": "明日方舟|Arknights",
+    "farmTargets": [],
+    "farmAppend": true,
+    "farmMaxTimesPerRound": 12,
     "activityApiUrl": "https://api.maa.plus/MaaAssistantArknights/api/gui/StageActivityV2.json",
     "activityCacheMaxHours": 24
   },

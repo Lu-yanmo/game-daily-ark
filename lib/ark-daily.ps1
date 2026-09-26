@@ -40,9 +40,9 @@ function Set-GdArkShopState {
 }
 
 function Resolve-GdArkDecision {
-    <# 命令行意图 -> 本轮方舟方案(含 -Stage 手动指定、-Force 跳过确认门)，并把"方舟方案：…"写进日志。
-       参数故意叫 -Stage 而不是 -ArkStage：本文件只管方舟，带游戏前缀的名字留给合体入口 daily-clear.ps1。 #>
-    param([Parameter(Mandatory)]$S, [string]$Stage, [switch]$Force)
+    <# 命令行意图 -> 本轮方舟方案(含 -Stage 手动指定、-Force 跳过确认门、-Farm 专用材料轮)，并把"方舟方案：…"写进日志。
+       参数故意叫 -Stage / -Farm 而不是 -ArkStage / -ArkFarm：本文件只管方舟，带游戏前缀的名字留给合体入口 daily-clear.ps1。 #>
+    param([Parameter(Mandatory)]$S, [string]$Stage, [switch]$Force, [switch]$Farm)
     $ark = Get-ArkEvent -S $S
     if ($Stage) {
         $ark = [pscustomobject]@{ Mode = 'manual'; Stage = $Stage; StageHint = $Stage; ClearSanity = $true; Reason = "命令行指定刷 $Stage"; EventKey = $null; EventTip = $null; Source = 'manual' }
@@ -50,6 +50,36 @@ function Resolve-GdArkDecision {
     if ($Force -and $ark.Mode -eq 'event-pending') {
         $ark = [pscustomobject]@{ Mode = 'event'; Stage = $ark.StageHint; StageHint = $ark.StageHint; ClearSanity = $true; Reason = "(-Force) 跳过活动确认门，直接刷 $($ark.StageHint)"; EventKey = $ark.EventKey; EventTip = $ark.EventTip; Source = $ark.Source }
         Write-GdLog '-Force：本轮忽略活动确认门' -Level WARN
+    }
+
+    <# 材料补刷(ark-farm)：-Farm=专用轮(整条 Fight 就刷这些关)，否则长草方案上顺带追加。
+       功能没装(这棵树没有 ark-farm.ps1)或本轮不该刷 → $farmOpt 为 $null，方案原样不动。 #>
+    $farmOpt = $null
+    if (Get-Command Resolve-GdArkFarmDecision -ErrorAction SilentlyContinue) {
+        $farmOpt = Resolve-GdArkFarmDecision -S $S -Decision $ark -Dedicated:$Farm
+    }
+    if ($Farm) {
+        if ($farmOpt) {
+            $fs = @($farmOpt.Stages)
+            $ark = [pscustomobject]@{
+                Mode = 'farm'; Stage = ($fs -join ','); StageHint = ($fs -join ','); ClearSanity = $true
+                Reason = "材料补刷专用轮 — $($farmOpt.Reason)"; EventKey = $ark.EventKey; EventTip = $ark.EventTip
+                Source = $ark.Source; Farm = $farmOpt; FarmMode = 'dedicated'
+            }
+        } else {
+            Write-GdLog '-Farm 本轮没有可补的材料 → 按原方案跑' -Level WARN
+            $ark | Add-Member -NotePropertyName Farm -NotePropertyValue $null
+            $ark | Add-Member -NotePropertyName FarmMode -NotePropertyValue ''
+        }
+    } elseif ($farmOpt) {
+        # 顺带档：把 farm 关并进长草计划尾部(去重)，farm 关掉不进活动/manual
+        $base = @((([string]$ark.Stage) -split '[,，、;；\s]+' | Where-Object { $_ }))
+        $merged = @($base)
+        foreach ($st in @($farmOpt.Stages)) { if ($merged -notcontains $st) { $merged += $st } }
+        $ark | Add-Member -NotePropertyName Stage -NotePropertyValue ($merged -join ',') -Force
+        $ark | Add-Member -NotePropertyName Reason -NotePropertyValue "$($ark.Reason)；顺带 $($farmOpt.Reason)" -Force
+        $ark | Add-Member -NotePropertyName Farm -NotePropertyValue $farmOpt
+        $ark | Add-Member -NotePropertyName FarmMode -NotePropertyValue 'append'
     }
     Write-GdLog "方舟方案：$($ark.Mode) — $($ark.Reason)"
     return $ark
@@ -60,6 +90,7 @@ function Show-GdArkPreview {
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Decision)
     $prev = Set-MaaDailyConfig -S $S -Decision $Decision
     $prev.Changes | ForEach-Object { Write-GdLog "  MAA：$_" }
+    if (Get-GdMapValue $Decision 'Farm') { Write-GdLog "  材料补刷：$($Decision.Farm.Reason)(档位=$($Decision.FarmMode))" }
     $pattern = if ($S.ark.windowTitlePattern) { [string]$S.ark.windowTitlePattern } else { '明日方舟|Arknights' }
     # 同 Start-GdArkClient：预览也要按进程名过滤，别让浏览器标签页冒充"端游窗口已存在"
     $arkName = if ($S.paths.arknightsExe) { [System.IO.Path]::GetFileNameWithoutExtension([string]$S.paths.arknightsExe) } else { $null }
@@ -110,5 +141,11 @@ function Start-GdArkDaily {
         Write-GdLog '方舟这一路要管理员权限：去掉 -NoElevate(或用 run-daily.cmd / 计划任务)重跑即可自动提权' -Level ERROR
     }
     Stop-MaaAndGame -S $S
+    # 掉落记账放在收尾之后：MAA 关门前还会往 gui.log 补写最后的掉落统计行，偏移记在账本里，
+    # 这一轮漏几行下一轮也会补上 —— 所以这段抛任何错都只 WARN，绝不影响本轮结论。
+    try {
+        $bn = Update-GdArkFarmLedger -S $S
+        if ($bn) { Write-GdLog "掉落记账：$bn" }
+    } catch { Write-GdLog "掉落记账没做起来：$($_.Exception.Message)(不影响本轮)" -Level WARN }
     return $r
 }

@@ -575,6 +575,96 @@ if (Test-Path -LiteralPath $askPath) {
     Check 'tools\vision-ask.ps1 存在(只问不点的诊断入口)' $false '没找到这份文件'
 }
 
+Write-Host "`n[farm] 智能补材料(lib\ark-farm.ps1，纯函数喂假数据；IO 只碰临时目录)"
+$farmLib = Join-Path $PSScriptRoot '..\lib\ark-farm.ps1'
+if (Test-Path -LiteralPath $farmLib) { . $farmLib }   # 记账/判定层和 ark-daily 一样不在 test-lib 的点用清单里，这条自己点；文件不在(工程被裁)交给下面的守卫说人话
+if (Get-Command Resolve-ArkFarmPlan -ErrorAction SilentlyContinue) {
+    # —— 目标清单解析：三种写法 + 坏行不静默 ——
+    $p1 = Parse-GdArkFarmTargetSpec -Raw 'D32钢=30@CE-5'
+    Check 'farm 目标：名=数@关 拆得开' ($p1.Key -eq 'D32钢' -and $p1.Target -eq 30 -and @($p1.Stages).Count -eq 1 -and -not $p1.Bad) "$($p1.Raw)"
+    $p2 = Parse-GdArkFarmTargetSpec -Raw '30135=12@CE-5,CE-4'
+    Check 'farm 目标：代号+多关(逗号/顿号分隔)拆得开' ($p2.Key -eq '30135' -and @($p2.Stages).Count -eq 2) ($p2.Stages -join '/')
+    $p3 = Parse-GdArkFarmTargetSpec -Raw @{ item = 'D32钢'; target = 20; stages = @('CE-5') }
+    Check 'farm 目标：json 对象写法也吃' ($p3.Key -eq 'D32钢' -and $p3.Target -eq 20 -and -not $p3.Bad)
+    $p4 = Parse-GdArkFarmTargetSpec -Raw '想刷点火腿'
+    Check 'farm 目标：看不懂的行给 Bad 说明而不是丢掉' ([string]$p4.Bad -match '材料名=数量') "[$($p4.Bad)]"
+    $p5 = Parse-GdArkFarmTargetSpec -Raw @{ item = 'D32钢' }
+    Check 'farm 目标：对象缺数量也给 Bad' ([string]$p5.Bad -match '目标数量')
+
+    # —— 掉落文本解析：形状、拒绝表、只认 (+N) ——
+    $sample = @(
+        '[08:50:26] CE-5 掉落统计:'
+        'D32钢 : 2 (+2)   或铝石 : 1 (+1)   当前次数 : 3'
+        '[08:52:10] LS-5 掉落统计:'
+        '采购凭证 : 30 (30)'
+    ) -join "`r`n"
+    $blks = @(Parse-GdArkDropText -Text $sample)
+    Check 'farm 掉落：两个块、关卡代号抓得到' ($blks.Count -eq 2 -and $blks[0].Stage -eq 'CE-5' -and $blks[1].Stage -eq 'LS-5') "$($blks.Count) 块"
+    Check 'farm 掉落：时间戳前缀不影响识别；「当前次数」被拒绝表挡掉' (@($blks[0].Items).Count -eq 2 -and [string]$blks[0].Items[0].Name -eq 'D32钢') (($blks[0].Items | ForEach-Object { "$($_.Name)+$($_.Delta)" }) -join ' ')
+    Check 'farm 掉落：只按 (+N) 记增量，"(30)"这种总数不当增量' (@($blks[1].Items).Count -eq 1 -and [int]$blks[1].Items[0].Delta -eq 0)
+    Check 'farm 掉落：空文本给空数组不抛' (@(Parse-GdArkDropText -Text '').Count -eq 0)
+
+    # —— 判表：缺口/选关/封顶/来源标注 ——
+    $N2I = @{ 'D32钢' = '30135'; '或铝石' = '30115' }
+    $I2N = @{ '30135' = 'D32钢'; '30115' = '或铝石' }
+    $known = @{ 'CE-5' = $true; 'CE-4' = $true }
+    $r0 = Resolve-ArkFarmPlan -Targets @()
+    Check 'farm 判表：空清单不炸参数绑定，理由说"没配 farmTargets"' (-not $r0.Active -and $r0.Reason -match 'farmTargets') $r0.Reason
+    $dt = @{ '30135' = @{ 'CE-5' = @{ runs = 5; qty = 12 }; 'CE-4' = @{ runs = 3; qty = 3 } } }
+    $rf = Resolve-ArkFarmPlan -Targets @($p1) -NameToId $N2I -IdToName $I2N -Inventory @{ '30135' = 18 } -DropTable $dt -KnownStages $known
+    # 目标30 现有18 差12；p1 显式填了 CE-5 → 只按 CE-5 的学习数据算：12/5=2.4 → ceil(12/2.4)=5 场
+    Check 'farm 判表：缺口=目标-现有，学习表挑关(最多2、平均掉得多的打头)' ($rf.Active -and [int]$rf.Gap -eq 12 -and @($rf.Stages).Count -le 2 -and $rf.Stages[0] -eq 'CE-5') ($rf.Stages -join ',')
+    Check 'farm 判表：次数按学习到的掉落率折算且 Reason 说清账目' ([int]$rf.Times -eq 5 -and $rf.Reason -match '还差 12' -and $rf.Reason -match '每场约 2\.4') $rf.Reason
+    $rc = Resolve-ArkFarmPlan -Targets @(Parse-GdArkFarmTargetSpec -Raw 'D32钢=99@CE-5') -NameToId $N2I -IdToName $I2N -Inventory @{} -DropTable $dt -KnownStages $known -MaxTimes 4
+    Check 'farm 判表：单轮封顶生效并在 Reason 里说"明天接着刷"' ([int]$rc.Times -eq 4 -and $rc.Reason -match '单轮封顶 4') $rc.Reason
+    $rg = Resolve-ArkFarmPlan -Targets @(Parse-GdArkFarmTargetSpec -Raw 'D32钢=10@CE-5') -NameToId $N2I -IdToName $I2N -Inventory @{ '30135' = 12 } -DropTable $dt
+    Check 'farm 判表：已够的目标不刷，理由里带"已够"' (-not $rg.Active -and $rg.Reason -match '已够') $rg.Reason
+    $ro = Resolve-ArkFarmPlan -Targets @(Parse-GdArkFarmTargetSpec -Raw '30135=30@CE-9') -NameToId $N2I -IdToName $I2N -Inventory @{} -KnownStages $known
+    Check 'farm 判表：只填了不认识的关 → 不刷并说为什么' (-not $ro.Active -and $ro.Reason -match '不被 MAA 关卡表认识') $ro.Reason
+    $ru = Resolve-ArkFarmPlan -Targets @(Parse-GdArkFarmTargetSpec -Raw '点火腿=5') -NameToId $N2I -IdToName $I2N
+    Check 'farm 判表：材料表查不到的名字跳过并说明(不静默)' (-not $ru.Active -and $ru.Reason -match 'item_index') $ru.Reason
+    $rn = Resolve-ArkFarmPlan -Targets @(Parse-GdArkFarmTargetSpec -Raw 'D32钢=5') -NameToId $N2I -IdToName $I2N -Inventory @{} -DropTable @{}
+    Check 'farm 判表：没学习数据又没填关 → 提示写成带 @关卡 的形式' (-not $rn.Active -and $rn.Reason -match '@CE-5') $rn.Reason
+    $re = Resolve-ArkFarmPlan -Targets @(Parse-GdArkFarmTargetSpec -Raw 'D32钢=8@CE-5') -NameToId $N2I -IdToName $I2N -Inventory @{ '30135' = 4 } -Origin @{ '30135' = 'depot' }
+    Check 'farm 判表：depot 标定的现值在 Reason 里明说"是估算"；无学习数据按每场 1 估' ($re.Reason -match '估算' -and $re.Reason -match '按每场 1 估' -and [int]$re.Times -eq 4) $re.Reason
+    # 多目标取缺口最大：D32钢差2、或铝石差10 → 应选或铝石
+    $rb = Resolve-ArkFarmPlan -Targets @((Parse-GdArkFarmTargetSpec -Raw 'D32钢=20@CE-5'), (Parse-GdArkFarmTargetSpec -Raw '或铝石=100@CE-4')) -NameToId $N2I -IdToName $I2N -Inventory @{ '30135' = 18; '30115' = 90 }
+    Check 'farm 判表：多目标一次只锁缺口最大的那个' ($rb.ItemName -eq '或铝石' -and [int]$rb.Gap -eq 10) $rb.Reason
+
+    # —— 材料表(IO)：真实 MAA 目录里 item_index 读得出映射 ——
+    $maps = Get-GdArkItemMaps -S $S
+    Check 'farm 材料表：MAA item_index 读得出 300+ 条映射' ($maps.NameToId.Count -gt 300) "$($maps.NameToId.Count) 条"
+
+    # —— 账本 IO：临时 state 目录里往返，绝不碰真账本 ——
+    $stateBak = $global:GD.State
+    $tmpState = Join-Path ([System.IO.Path]::GetTempPath()) ('gd-farmtest-' + $PID)
+    New-Item -ItemType Directory -Force -Path $tmpState | Out-Null
+    try {
+        $global:GD.State = $tmpState
+        $empty = Read-GdArkFarmLedger -S $S
+        Check 'farm 账本：文件不在就是空账(首跑判定先于记账，不抛)' ($empty.Inventory.byId.Count -eq 0 -and $empty.DropTable.Count -eq 0)
+        Write-GdJson -Path (Get-GdArkFarmInventoryPath) -Object ([pscustomobject]@{
+            version = 1
+            offset  = [pscustomobject]@{ path = 'X:\fake\gui.log'; offset = 4096 }
+            byId    = [pscustomobject]@{ '30135' = [pscustomobject]@{ count = 20; origin = 'drops'; updated = '2026-09-26 08:00:00' } }
+        })
+        Write-GdJson -Path (Get-GdArkFarmDropTablePath) -Object ([pscustomobject]@{
+            '30135' = [pscustomobject]@{ 'CE-5' = [pscustomobject]@{ runs = 5; qty = 12 } }
+        })
+        $led2 = Read-GdArkFarmLedger -S $S
+        Check 'farm 账本：写入后读回的契约是 hashtable 且数字没丢' (
+            ($led2.Inventory.byId -is [System.Collections.IDictionary]) -and [int]$led2.Inventory.byId['30135'] -eq 20 -and
+            [int]$led2.DropTable['30135']['CE-5'].qty -eq 12)
+        Check 'farm 账本：偏移按 {path;offset} 成对存(换日志文件不回扫旧账)' (
+            [string]$led2.Inventory.offset.path -eq 'X:\fake\gui.log' -and [long]$led2.Inventory.offset.offset -eq 4096)
+    } finally {
+        $global:GD.State = $stateBak
+        Remove-Item -LiteralPath $tmpState -Recurse -Force -ErrorAction SilentlyContinue
+    }
+} else {
+    Check 'lib\ark-farm.ps1 在场(智能补材料的判定+记账层)' $false '没找到 Resolve-ArkFarmPlan'
+}
+
 $res = Show-GdTestResult -Tag 'ark'
 if ($NoExit) { return $res }
 exit $(if ($res.Fail) { 1 } else { 0 })

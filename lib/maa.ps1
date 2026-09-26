@@ -114,6 +114,16 @@ function Set-MaaDailyConfig {
 
     $queue = @($root.TaskQueue)
     if ($queue.Count -eq 0) { throw 'MAA 配置里的 TaskQueue 为空或结构不认识(预期为数组)' }
+    <#
+      材料补刷(ark-farm)的两档在这里分野：
+        append(日常顺带) —— 关卡已由 ark-daily 拼进 Decision.Stage，MAA 侧什么都不多开(下面按老样子压关)，
+                            止损靠理智本身；
+        dedicated(-FarmArk 专用轮) —— StagePlan 整条就是 farm 关，这里额外打开 MAA 的
+                            「指定材料刷到 N(按本次出击掉落计数)」+「刷取次数上限」双保险。
+                            语义就算 MAA 哪天改了，最坏也只是这一轮理智的事，不会跨轮失控。
+    #>
+    $farmPlan = Get-GdMapValue $Decision 'Farm'
+    $farmDedicated = ([string](Get-GdMapValue $Decision 'FarmMode') -eq 'dedicated') -and $farmPlan -and [bool](Get-GdMapValue $farmPlan 'Active')
     $intent = [ordered]@{}
     foreach ($q in $queue) {
         if (-not $q) { continue }
@@ -141,10 +151,26 @@ function Set-MaaDailyConfig {
                 $changes += "$name → StagePlan = $stageText"
                 if ($Apply) { $q.StagePlan = [string[]]$stageList }
             }
-            foreach ($flag in @('UseMedicine', 'UseStone', 'UseExpiringMedicine', 'EnableTargetDrop', 'EnableTimesLimit')) {
-                if ($q.$flag -ne $false) {
-                    $changes += "$name → $flag = false"
-                    if ($Apply) { $q.$flag = $false }
+            if ($farmDedicated) {
+                # 双保险：DropCount=缺口(按本次出击掉落到数停) + TimesLimit=算出来的场次(封顶护栏)。
+                # IsInventoryTarget 故意按 false —— 不让 MAA 拿它自己的库存口径参与缺口判定，那本账在我们的 state 里。
+                $want = [ordered]@{
+                    EnableTargetDrop = $true; DropId = [string]$farmPlan.ItemId; DropCount = [int]$farmPlan.Gap; IsInventoryTarget = $false
+                    EnableTimesLimit = $true; TimesLimit = [int]$farmPlan.Times
+                    UseMedicine = $false; UseStone = $false; UseExpiringMedicine = $false
+                }
+                foreach ($k in @($want.Keys)) {
+                    if ($q.$k -ne $want[$k]) {
+                        $changes += "$name → $k = $($want[$k])(材料补刷专用轮)"
+                        if ($Apply) { $q.$k = $want[$k] }
+                    }
+                }
+            } else {
+                foreach ($flag in @('UseMedicine', 'UseStone', 'UseExpiringMedicine', 'EnableTargetDrop', 'EnableTimesLimit')) {
+                    if ($q.$flag -ne $false) {
+                        $changes += "$name → $flag = false"
+                        if ($Apply) { $q.$flag = $false }
+                    }
                 }
             }
         }

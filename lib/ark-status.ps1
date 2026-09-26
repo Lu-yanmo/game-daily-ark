@@ -29,6 +29,14 @@ function Show-GdArkStatusPlan {
     param([Parameter(Mandatory)]$S, [switch]$Offline)
     $ark = Get-ArkEvent -S $S -Offline:$Offline
     Write-Host "  方舟：$($ark.Mode)  理智刷 $($ark.Stage)  ← $($ark.Reason)" -ForegroundColor $(if ($ark.Mode -eq 'event-pending') { 'Yellow' } else { 'Gray' })
+    # 材料补刷一行：只按"今天若跑长草顺不带哪关"报，读三本账不联网。
+    # ark-farm.ps1 不在(工程被裁)时整行跳过 —— 和 Resolve-GdArkDecision 的接线守卫同一套路。
+    if (Get-Command Resolve-GdArkFarmDecision -ErrorAction SilentlyContinue) {
+        try {
+            $fp = Resolve-GdArkFarmDecision -S $S -Decision $ark
+            Write-Host "  $(Format-GdArkFarmLine -Plan $fp)" -ForegroundColor Gray
+        } catch { Write-Host "  材料补刷：没判出来($($_.Exception.Message))" -ForegroundColor DarkGray }
+    }
 }
 
 function Show-GdArkQueueState {

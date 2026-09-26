@@ -6,6 +6,7 @@
   .\daily-clear.ps1 -Ack             # 确认"新活动的图我自己手动打过了"→ 之后每天自动刷活动关卡
   .\daily-clear.ps1 -ShopDone        # 确认"活动商店已领空"→ 剩余理智改刷长草计划
   .\daily-clear.ps1 -ShopReset       # 撤销上面的领空标记(误点/活动又开新一批兑换)
+  .\daily-clear.ps1 -Farm            # 本轮只刷目标材料缺口(config 里 ark.farmTargets 配的目标)
   .\daily-clear.ps1 -Stage SK-5      # 临时指定刷哪几关(逗号分隔，会拿 MAA 的关卡表校验)
   .\daily-clear.ps1 -SkipCleanup     # 跑完不关端游/MAA(自己接着玩)
   .\daily-clear.ps1 -NoElevate       # 禁止自动提权(只在看输出时用；真跑大概率连不上端游)
@@ -27,6 +28,7 @@ param(
     [Alias('ConfirmEvent')][switch]$Ack,
     [Alias('MarkShopDone')][switch]$ShopDone,
     [switch]$ShopReset,
+    [switch]$Farm,
     [switch]$SkipCleanup,
     [switch]$Force,
     [switch]$NoElevate,
@@ -61,5 +63,5 @@ if ($ShopDone) { $gates += @{ Id = 'ark'; Verb = 'ShopDone' } }
 if ($ShopReset) { $gates += @{ Id = 'ark'; Verb = 'ShopReset' } }
 
 # 汇总/气泡里用中文短名('方舟')而不是模块 id：这份入口历史上就是这个措辞，别在重构里顺手改掉。
-$code = Invoke-GdDailyRound -S $S -ElevateScript (Join-Path $PSScriptRoot 'daily-clear.ps1') -BoundParams $PSBoundParameters -Gates $gates -Opt @{ Stage = $Stage } -Force:$Force -DryRun:$DryRun -SkipCleanup:$SkipCleanup -NoElevate:$NoElevate -NameField ShortName -NoticeOwner '方舟' -Tag $Tag
+$code = Invoke-GdDailyRound -S $S -ElevateScript (Join-Path $PSScriptRoot 'daily-clear.ps1') -BoundParams $PSBoundParameters -Gates $gates -Opt @{ Stage = $Stage; Farm = [bool]$Farm } -Force:$Force -DryRun:$DryRun -SkipCleanup:$SkipCleanup -NoElevate:$NoElevate -NameField ShortName -NoticeOwner '方舟' -Tag $Tag
 exit $code
