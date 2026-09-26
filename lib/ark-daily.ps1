@@ -106,8 +106,20 @@ function Start-GdArkDaily {
     # MAA 必然报"未找到窗口"，端游启动+等待白烧 12 分钟。桌面不对就直接记 not-started 早退，把原因写全。
     $desk = Get-GdInputDesktopName
     if ($desk -and $desk -ne 'Default') {
+        # 把"当时屏保到底装着什么"一起写进原因：事后翻 history.csv 就知道是谁干的，
+        # 不用再猜。读数函数只读注册表，读不到就说不知道，绝不因为这条把早退挡住。
+        $svTxt = ''
+        try {
+            if (Get-Command Get-GdScreensaverVerdict -ErrorAction SilentlyContinue) {
+                $svv = Get-GdScreensaverVerdict -Cfg (Get-GdScreensaverConfig)
+                if ($svv) { $svTxt = [string]$svv.Detail }
+            }
+        } catch { $svTxt = '' }
         Write-GdLog "跳过本轮：输入桌面=$desk(屏保/锁屏已接管会话，鼠标键盘进不来；读不到桌面名不会走这条)" -Level WARN
-        return @{ Status = 'not-started'; Duration = 0; Detail = "起跑时会话在 $desk 桌面(屏保/锁屏)，直接跳过；长期解法：Wallpaper Engine 取消「用作 Windows 屏保」或夜间保持解锁" }
+        if ($svTxt) { Write-GdLog "  屏保读数：$svTxt" -Level WARN }
+        $detail = "起跑时会话在 $desk 桌面(屏保/锁屏)，直接跳过；长期解法：把 Windows 屏保设为「(无)」——pwsh -File tools\unarm-screensaver.ps1 -Apply，或 设置→个性化→锁屏界面→屏幕保护程序→(无)；夜间保持解锁也行"
+        if ($svTxt) { $detail += "。$svTxt" }
+        return @{ Status = 'not-started'; Duration = 0; Detail = $detail }
     }
     $ark = $Decision
     $arkName = [System.IO.Path]::GetFileNameWithoutExtension($S.paths.arknightsExe)

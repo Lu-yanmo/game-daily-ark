@@ -279,8 +279,11 @@ MAA 认界面靠模板匹配，**它的模板集里没有的东西它就看不�
 2. **端游由脚本拉起**：MAA 的配置里其实没存端游路径（`StartGame=true` 也只会报「未找到窗口」），所以 `daily-clear.ps1`
    会先启动 `paths.arknightsExe` 指向的端游、等窗口出现、再把 `StartGame` 关掉后启动 MAA 去连。
    端游退出后需要重新登录/更新的话，日常会卡在这一步（报 `not-started` 并通知你，时限 `runtime.arkStartTimeoutMinutes`）。
-3. **不要锁屏**：保持登录、允许熄屏即可（运行期间脚本顶住睡眠和熄屏；屏保策略 2026-09-26 起为**只关不复**——每轮起跑时关掉后不再恢复）。
+3. **不要锁屏**：保持登录、允许熄屏即可（运行期间脚本顶住睡眠和熄屏；每轮起跑时也会把屏保关掉，且不再恢复）。
    设了「无人操作自动锁屏」请先关掉 —— 锁屏 = 桌面不可用 = 截图失败；起跑时会话若已被屏保/锁屏桌面接管，本轮直接早退 `not-started` 并写明原因。
+   - **"到点会有全屏程序接管输入桌面"这件事可以断根**：`pwsh -File tools\unarm-screensaver.ps1` 只读体检（不加参数一个字节都不写），
+     加 `-Apply` 才真动 —— 删的是注册表里挂着的那个 `.scr` 本身，原值先备份进 `state\screensaver.unarm.json`，`-Restore` 可原样装回。
+     06:00 那一轮连败的根因就是壁纸引擎注册的 `.scr`：日常脚本只把武装位拨到 0，挂着的 `.scr` 还在，任何一次屏保设置改动都可能把它重新点亮。
 4. MAA 那边不需要额外设置，脚本每轮直接改它的配置文件（改前都在 `backups\` 留副本）。
 
 ## 5. 计划任务
@@ -298,12 +301,15 @@ pwsh -File install-task.ps1 -Uninstall
 ## 6. 出问题怎么查
 
 - `pwsh -File status.ps1` —— 环境、进程、今天判定、MAA 队列、确认状态、最近记录，一次看完。
-- `pwsh -File tools\test-ark.ps1` —— 纯逻辑自检（只读：不改配置、不启动任何程序、不发网络请求），178 条断言，`powershell.exe -File` 同样能跑。
+- `pwsh -File tools\test-ark.ps1` —— 纯逻辑自检（只读：不改配置、不启动任何程序、不发网络请求），213 条断言，`powershell.exe -File` 同样能跑。
   改过 settings 或判定代码后跑一遍最放心。
 - `pwsh -File tools\test-modules.ps1` —— 框架层自检（这一路的游戏模块清单齐不齐、入口开关名对不对、判定/预览钩子调不调得动，
   外加一条"源码/文案里不许出现只在这台机器成立"的扫描：安装路径、MuMu 虚拟机名、M9A 实例 id、视觉 Key、webhook、`%USERPROFILE%`，
   值全部运行时从本机 `config\settings.json` 里取，所以这条不会自己命中自己；红了只报"哪个文件 <- 哪一项"，值不进日志），
-  只读，`powershell.exe -File` 同样能跑。这份仓库里只有方舟一路，所以是 120 条；它和上面那 178 条是两套东西，缺哪个都不算过。
+  只读，`powershell.exe -File` 同样能跑。这份仓库里只有方舟一路，所以是 180 条；它和上面那 213 条是两套东西，缺哪个都不算过。
+- `pwsh -File tools\unarm-screensaver.ps1` —— 屏保体检与断根（**不加参数=只读**，把现值、要动哪几项、动完的复检打出来，一个字节都不写；
+  `-Apply` 才真写，`-Restore` 按备份装回去）。退出码只读和 `-Apply` 同一套：0=已断根 / 1=还没断根 / 2=读不到注册表或没有备份，
+  所以脚本判"这一轮会不会被屏保接管"直接判它就行。`status.ps1` 的「屏保」行读的是同一套结论。
 - `pwsh -File tools\probe-decisions.ps1` —— 把活动接口逐条窗口打出来，怀疑判定不对时看这个。
 - **一轮跑完是 `stalled`、MAA 一直在点同一个按钮** → 先在 `logs\` 那一轮里搜 `点击环境探测`，那行会写当时输入桌面叫什么、
   端游在不在前台、窗口状态和光标位置；再搜 `抢前台` 那句（脚本判到"点了没推进"时会自己抢一次并把现场带上）。
@@ -347,6 +353,7 @@ pwsh -File install-task.ps1 -Uninstall
   lib\supervisor.ps1  监督 agent（见第 2.3 节）：证据→状态→动作三段纯函数 + 起停/记账；不点鼠标，干预只有重启 MAA 一种
   tools\supervise.ps1 监督的心跳子进程本体（真跑一轮时自动隐藏起；-Once 手动拍一拍）
   tools\vision-ask.ps1 只问不点：把现屏交给模型、原样打印回答，一次点击都不做
+  tools\unarm-screensaver.ps1 屏保体检/断根（默认只读；-Apply 删掉注册表挂的 .scr，-Restore 装回，见第 4 节第 3 条）
   tools\vision\ask.py "问模型"那一层（收 PowerShell 写的请求文件、回模型原文）；截图与点击都不在这里
   tools\panel.ps1      面板本体（-SelfTest 不显示窗口，给自动化验证用；-DumpSummary 出机器协议行）
   tools\panel-cs\      C# 主控台本体（Panel.cs 是入口，其余 Panel.*.cs 是同一个 partial class 的分工；build.ps1 按目录扫 *.cs 用系统自带 csc 现编；只转达 panel.ps1 的结论）
