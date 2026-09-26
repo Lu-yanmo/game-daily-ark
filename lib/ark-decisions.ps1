@@ -1,5 +1,15 @@
-﻿# lib/ark-decisions.ps1 — 方舟(端游 + MAA)侧"今天刷什么"的判定：活动窗口、确认门、领空回落、关卡校验
-# 依赖 lib/common.ps1 + lib/decisions-common.ps1；只读判定，不启动任何程序。
+﻿# lib/ark-decisions.ps1 — 方舟(端游 + MAA)侧的取数层 + 关卡表 + PS→C# 转发壳
+# 依赖 lib/common.ps1 + lib/decisions-common.ps1；只读判定，不启动任何助手程序。
+#
+# ── 冻结(2026-09-26，PS→C# 批次 1)────────────────────────────────────────────
+# Resolve-ArkPlan / Test-GdStages 的**规则本体**已迁到 tools\panel-cs\Decisions.cs
+# (verb：decide-ark / check-stages；契约见 docs\ps-migration-batch0.md)。
+# 本文件留下的两个函数只是转发壳：负责把规则需要的**值**(settings 块、真实 dow、ack/领空 map、
+# 入口 verb 名、关卡表)组装好送进 C#，再把信封 data 原样交回。
+# 所以：改文案/改分支请改 C# 那份并跑 tools\probe-decisions-golden.ps1 对拍，不要在这里加规则。
+# 组装哪几个值是协议的一部分：dow 的"周日=7"换算、IgnoreShopDone 与 shopDoneStopsEvent 的取图逻辑、
+# verb 名(会被 Set-GdEntryVerb 现场改) —— test-ark [t7] 依赖这些留在 PS 侧。
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Get-GdStageTable {
     <# 从 MAA 自带 resource/stages.json 建立 关卡代号 -> 理智消耗 的表(进程内缓存) #>
@@ -30,27 +40,18 @@ function Get-GdStageTable {
 }
 
 function Test-GdStages {
-    <# 校验关卡代号是否被 MAA 认识；返回 @{ Bad=@(...); Costs='30+30 理智' } #>
+    <# 转发壳：拆分/查表/合计的规则在 C#(check-stages)；关卡表由上面的 Get-GdStageTable 读好后喂进去 #>
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)][string]$StageText)
     $table = Get-GdStageTable -S $S
-    $list = @($StageText -split '[,，、;；\s]+' | Where-Object { $_ })
-    $bad = @($list | Where-Object { -not $table.ContainsKey($_) })
-    $cost = 0
-    foreach ($s in $list) { if ($table.ContainsKey($s)) { $cost += [int]$table[$s] } }
-    return [pscustomobject]@{
-        Stages = $list
-        Bad    = $bad
-        Cost   = $cost
-        Note   = if ($table.Count -eq 0) { '拿不到 MAA 关卡表，未校验' }
-                elseif ($bad.Count) { "未知关卡：$($bad -join ', ')" }
-                else { "共 $($list.Count) 关，单圈理智 $cost" }
-    }
+    return Invoke-GdCli -Verb 'check-stages' -Body ([pscustomobject]@{ table = $table; stageText = $StageText })
 }
 
 function Resolve-ArkPlan {
     <#
-      纯判定：活动数据 + 当前时间 -> 方舟方案(不联网、不写盘，可被自检脚本喂假数据)
-      返回 Mode = idle | event | event-pending
+      转发壳：活动窗口/确认门/领空回落/文案的全部规则在 C#(decide-ark)。
+      这里只组装规则要用的值 —— 真实时钟的 dow(周日按 7，老行为原样保留)、
+      按 IgnoreShopDone + shopDoneStopsEvent 决定给不给领空图、现场 verb 名、ack 图。
+      返回信封 data(PSCustomObject，属性名与顺序和旧版逐字一致)。
     #>
     param(
         [Parameter(Mandatory)]$S,
@@ -59,114 +60,28 @@ function Resolve-ArkPlan {
         [Parameter(Mandatory)][long]$Now,
         [switch]$IgnoreShopDone
     )
-
     $dow = [int](Get-Date).DayOfWeek
     if ($dow -eq 0) { $dow = 7 }
-    $idlePlan = Get-GdMapValue $S.ark.planByWeekday "$dow"
-    if (-not $idlePlan) { $idlePlan = $S.ark.defaultStage }
-
-    $fightable = @()
-    $server = Get-GdMapValue $Data 'Official'
-    if ($server) {
-        foreach ($grp in $server.PSObject.Properties) {
-            $gv = $grp.Value
-            if ($null -eq $gv) { continue }
-            $entries = @()
-            if ($gv -is [System.Array]) {
-                $i = 0
-                foreach ($item in $gv) { $entries += , @("item$i", $item); $i++ }
-            } else {
-                foreach ($item in $gv.PSObject.Properties) { $entries += , @($item.Name, $item.Value) }
-            }
-            foreach ($e in $entries) {
-                $id = $e[0]; $v = $e[1]
-                if ($null -eq $v) { continue }
-                $act = Get-GdMapValue $v 'Activity'
-                if ($null -eq $act) { $act = $v }
-                $start = Convert-GdUtc8ToMs (Get-GdMapValue $act 'UtcStartTime')
-                $end   = Convert-GdUtc8ToMs (Get-GdMapValue $act 'UtcExpireTime')
-                if (-not $start -or -not $end) { continue }
-                if ($Now -lt $start -or $Now -gt $end) { continue }
-                $stages = @()
-                $raw = Get-GdMapValue $v 'Stages'
-                if ($raw) {
-                    foreach ($st in $raw) {
-                        $val = Get-GdMapValue $st 'Value'
-                        if ($val) { $stages += [pscustomobject]@{ Value = [string]$val; Drop = [string](Get-GdMapValue $st 'Drop') } }
-                    }
-                }
-                $fightable += [pscustomobject]@{
-                    Group = $grp.Name; Id = [string]$id; Tip = [string](Get-GdMapValue $act 'Tip')
-                    Start = $start; End = $end; Stages = $stages
-                }
-            }
-        }
-    }
-    $fightable = @($fightable | Where-Object { $_.Stages.Count -gt 0 } | Sort-Object End)
-
-    # 「资源收集」= 材料加倍期(没有活动代币，长草计划本身最优)，只作为提示
-    $rcNote = ''
-    $rc = Get-GdMapValue $server 'resourceCollection'
-    if ($rc) {
-        $rs = Convert-GdUtc8ToMs (Get-GdMapValue $rc 'UtcStartTime')
-        $re = Convert-GdUtc8ToMs (Get-GdMapValue $rc 'UtcExpireTime')
-        if ($rs -and $re -and $Now -ge $rs -and $Now -le $re) {
-            $rcNote = "；正逢[$(Get-GdMapValue $rc 'Tip')]材料加倍期(至 $(Format-GdUnixMs $re))，刷材料本效率翻倍"
-        }
-    }
-
-    $idle = {
-        param($Reason, $Key = $null, $Tip = $null, $Done = $false)
-        [pscustomobject]@{
-            Mode = 'idle'; Stage = [string]$idlePlan; StageHint = $null; ClearSanity = $true
-            Reason = "$Reason(数据源：$Source)$rcNote"; EventKey = $Key; EventTip = $Tip
-            Source = $Source; ShopDone = $Done
-        }
-    }
-
-    if ($fightable.Count -eq 0) {
-        return (& $idle "无可刷活动关卡，按长草计划刷 $idlePlan")
-    }
-
-    # 商店已领空的活动：直接跳过，不再烧活动代币
     $shopDone = @{}
     if (-not $IgnoreShopDone -and (Test-GdShopDoneEnabled -S $S -Game 'ark')) {
         $shopDone = Get-GdShopDoneMap -Game 'ark'
     }
-    $emptied = @($fightable | Where-Object { $shopDone.ContainsKey($_.Id) })
-    $runnable = @($fightable | Where-Object { -not $shopDone.ContainsKey($_.Id) })
-
-    if ($runnable.Count -eq 0) {
-        $tips = (@($emptied | ForEach-Object { $_.Tip }) -join '、')
-        return (& $idle "活动[$tips]商店已标记领空 → 剩余理智改刷长草计划 $idlePlan(要恢复刷活动：daily-clear.ps1 $(Get-GdEntryVerb -Game ark -Verb ShopReset))" `
-                ([string]$emptied[0].Id) ([string]$emptied[0].Tip) $true)
+    $body = [pscustomobject]@{
+        ark = $S.ark
+        dow = $dow
+        now = $Now
+        data = $Data
+        source = $Source
+        ack = (Get-GdAckMap -Game 'ark')
+        shopDone = $shopDone
+        verbAck = (Get-GdEntryVerb -Game ark -Verb Ack)
+        verbShopReset = (Get-GdEntryVerb -Game ark -Verb ShopReset)
     }
-
-    $ev = $runnable[0]
-    $pick = @($ev.Stages | Where-Object { $_.Drop -match '^\d{3,6}$' } | Select-Object -First 1)
-    if ($pick.Count -eq 0) { $pick = @($ev.Stages | Select-Object -First 1) }
-    $stage = [string]$pick[0].Value
-    $ack = Get-GdAckMap -Game 'ark'
-    $acked = $ack.ContainsKey($ev.Id)
-
-    if ($S.ark.eventRequiresAck -and -not $acked) {
-        $tail = if ($emptied.Count) { "；另有 $($emptied.Count) 个活动已标记领空" } else { '' }
-        return [pscustomobject]@{
-            Mode = 'event-pending'; Stage = [string]$idlePlan; StageHint = $stage; ClearSanity = $false
-            Reason = "活动[$($ev.Tip)]($($ev.Group)/$($ev.Id)，至 $(Format-GdUnixMs $ev.End)) 进行中但你还没确认可自动刷 → 本轮不消耗理智。确认后运行 daily-clear.ps1 $(Get-GdEntryVerb -Game ark -Verb Ack)$tail"
-            EventKey = $ev.Id; EventTip = $ev.Tip; Source = $Source; ShopDone = $false
-        }
-    }
-    $skipNote = if ($emptied.Count) { "；另有 $($emptied.Count) 个活动商店已领空，已跳过" } else { '' }
-    return [pscustomobject]@{
-        Mode = 'event'; Stage = $stage; StageHint = $stage; ClearSanity = $true
-        Reason = "活动[$($ev.Tip)]已确认自动刷 → 理智全刷 $stage($(Format-GdUnixMs $ev.Start) ~ $(Format-GdUnixMs $ev.End))$skipNote"
-        EventKey = $ev.Id; EventTip = $ev.Tip; Source = $Source; ShopDone = $false
-    }
+    return Invoke-GdCli -Verb 'decide-ark' -Body $body
 }
 
 function Get-ArkEvent {
-    <# 取活动数据(接口 -> MAA 本地缓存 -> 无)后交给 Resolve-ArkPlan #>
+    <# 取活动数据(接口 -> MAA 本地缓存 -> 无)后交给 Resolve-ArkPlan(现即转发壳) #>
     param([Parameter(Mandatory)]$S, [switch]$Offline, [switch]$IgnoreShopDone)
 
     $now = Get-GdNowMs

@@ -3,6 +3,11 @@
 # 为什么是"每款一组函数 + 外壳按需调用"：拆出去发布的单游戏仓库里，status.ps1 必须只看方舟，
 # 又不能靠改行来做到。所以外壳对每段先探一下"这个仓库里有没有这路的函数"，没有就整段跳过。
 # 依赖：调用方先点 lib\common.ps1、lib\decisions.ps1、lib\maa.ps1(本文件不重复点，见 lib\decisions.ps1 开头)。
+#
+# ── 冻结(2026-09-26，PS→C# 批次 2)── Show-GdArkQueueState 的"读 configuration.json + 行式"本体
+# 已迁 tools\panel-cs\Detect.cs(verb：maa-queue-lines)，这里只剩转发壳和两种显示行为
+# (路径没填→黄字 / 读取失败→红字)。改队列行文案 = 改 C# + 跑 probe-status-detect-golden 对拍。
+# EnvRows 的 [ordered] 形状、进程名清单仍故意留 PS(test-modules 按类型断言；判定本体批次 1 已在 Decisions.cs)。
 
 function Get-GdArkEnvRows {
     <# [1] 环境：方舟这边要探的三个路径(标签 -> 路径)，缺失与否由外壳统一染色 #>
@@ -40,20 +45,14 @@ function Show-GdArkStatusPlan {
 }
 
 function Show-GdArkQueueState {
-    <# [4] MAA 队列现状：直接读 configuration.json，不改任何东西 #>
+    <# [4] MAA 队列现状：转发壳 —— 读 configuration.json 与行式的本体在 C#(maa-queue-lines)，
+       这里保留的只有"路径没填→黄字"和"读取失败→红字"两种显示行为。 #>
     param([Parameter(Mandatory)]$S)
     $cfgPath = Join-GdPath $S.paths.maaDir @($S.paths.maaConfig)
     # 路径没填时先说清"读不到是因为还没 setup"，别把下面 try 里那句绑定错误当成本工具的毛病
     if (-not (Test-GdPathReady $cfgPath)) { Write-Host "  读不到 MAA 的配置文件：$cfgPath(助手目录还没填 → 先跑 setup.ps1)" -ForegroundColor Yellow; return }
     try {
-        $cfg = Read-GdJson -Path $cfgPath
-        foreach ($q in @($cfg.Configurations.Default.TaskQueue)) {
-            if (-not $q) { continue }
-            $plan = if ($q.TaskType -eq 'Fight') { " plan=$(($q.StagePlan | Where-Object { $_ }) -join ',')" } else { '' }
-            Write-Host ("  {0,-10} {1,-12} IsEnable={2}{3}" -f $q.TaskType, $q.Name, $q.IsEnable, $plan)
-        }
-        Write-Host "  RunDirectly(启动即自动开始)= $($cfg.Configurations.Default.Gui.StartUpSettings.RunDirectly)"
-        Write-Host "  StartGame(MAA 自己开游戏)  = $($cfg.Configurations.Default.Gui.RuntimeSettings.StartGame)"
-        Write-Host "  连接方式 ConnectSettings.Config = $($cfg.Configurations.Default.Gui.ConnectSettings.Config)"
+        $d = Invoke-GdCli -Verb 'maa-queue-lines' -Body ([pscustomobject]@{ cfgPath = $cfgPath })
+        foreach ($l in @($d.Lines)) { Write-Host $l }
     } catch { Write-Host "  读取失败：$($_.Exception.Message)" -ForegroundColor Red }
 }
