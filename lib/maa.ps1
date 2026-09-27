@@ -31,6 +31,17 @@
 #  `Status = 'unknown-format'` 字面改由 return 构造的 switch 逐档保留，仍不许"顺手合并"。
 #  批次 5 钉的 `$drained = $true` 回放锚不受影响，原样在 parse-maa-gui-lines 回灌段。)
 # ──────────────────────────────────────────────────────────────────────────────
+#
+# ── 追加冻结(2026-09-27，PS→C# 批次 9 —— 活段第三批：回灌+挂钟收尾)─────────────
+# Invoke-MaaRun 的六档事件回灌 switch(finished/chain/stall/drained/error/benign 的逐档语义：
+#     chain 大小写不敏感累计、error 满 40 无声封顶、benign 按 Pattern 首见、话术整句)已迁到
+#     tools\panel-cs\RunLoops.cs(verb：apply-maa-gui-events)；出循环后的挂钟收尾三行
+#     (OK 话术 Round(dur/60,1) 的数字形、"完成链路："拼串)搬进同一文件(verb：finish-maa-run)。
+# 壳保留的现场量：tail 轮询、markers/logChars += 计数、$completed/$benignSeen 两个 hashtable 的
+#     重建、挂钟 $dur 与 Sort-Object 链表。旧两段逐行 # 冻在原位(`任务已完成，但出现错误`、
+#     `$drained = $true` 这些 test-ark 字面锚就在冻结行里，substring 照命中，别删)。
+# 改话术/计数规则改 RunLoops.cs 并复拍 tools\probe-live-golden.ps1(基线仍钉 c498da0)。
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Get-MaaPaths {
     param([Parameter(Mandatory)]$S)
@@ -233,49 +244,77 @@ function Invoke-MaaRun {
             })
             $markers += [int]$g.Markers
             $logChars += [int]$g.LogChars
-            foreach ($ev in @($g.Events)) {
-                switch ([string]$ev.Kind) {
-                    'finished' {
-                        $finished = $true
-                        Write-GdLog "MAA 宣布任务全部完成$(if ($ev.Used) { "(内部计时 $($ev.Used))" })" -Level OK
-                    }
-                    'chain' {
-                        $chain = [string]$ev.Chain
-                        if (-not $completed.ContainsKey($chain)) { $completed[$chain] = 0 }
-                        $completed[$chain]++
-                        Write-GdLog "MAA 完成链路：$chain"
-                    }
-                    'stall' {
-                        $stallWarn = [string]$ev.Msg
-                        Write-GdLog "MAA 停滞告警：$stallWarn" -Level WARN
-                    }
-                    'drained' {
-                        <#
-                          MAA 把整条队列跑空了、但过程中有链路报错 —— 它不会自己再跑第二遍。
-                          这一句和「任务已全部完成」是两种收尾，早先只认后者，于是这种局要一直等到
-                          「asst.log 静默 22 分钟」才反应得过来(2026-09-25 07:53 那轮实测：6 条链路 0 完成，
-                          07:56:46 就打出这句，脚本却傻等到 08:19)。认下来，下面立刻处理。
-                          匹配字面"任务已完成，但出现错误"已搬进 Orchestration.cs 的 parse-maa-gui-lines，
-                          这里留原话给 t15 断言认锚 —— 改话术改 C#，别动这里的引文。
-                        #>
-                        $drained = $true
-                        Write-GdLog 'MAA 宣布本轮已跑完但有错误(队列已空，它不会再自己动)' -Level WARN
-                    }
-                    'error' {
-                        if ($errors.Count -lt 40) {
-                            $errors += [string]$ev.Msg
-                            Write-GdLog "MAA 异常线索：$($ev.Msg)" -Level WARN
-                        }
-                    }
-                    'benign' {
-                        # MAA 有几条 ERR 级前缀其实是正常噪音(实测随后链路照样完成)，别混进"异常线索"里
-                        if (-not $benignSeen.ContainsKey([string]$ev.Pattern)) {
-                            $benignSeen[[string]$ev.Pattern] = $true
-                            Write-GdLog "MAA 噪音(已按 benignMaaErrors 忽略)：$($ev.Msg)"
-                        }
-                    }
+            <# 批次 9：六档回灌的逐档语义(话术整句、chain 大小写不敏感累计、error 满 40 无声封顶、
+               benign 按 Pattern 首见)已搬进 tools\panel-cs\RunLoops.cs(verb：apply-maa-gui-events)。
+               壳只做三件事：喂事件+旧状态 → 日志按档重印 → 拿回执重建六个本地量。
+               旧 switch 逐行 # 冻在下面 —— test-ark 的 `任务已完成，但出现错误`/`$drained = $true`
+               字面锚就在冻结行里，别删别"顺手清理"。 #>
+            $ge = Invoke-GdCli -Verb 'apply-maa-gui-events' -Body ([pscustomobject]@{
+                events = @($g.Events)
+                state  = [pscustomobject]@{
+                    completed = $completed; errors = @($errors)
+                    benignPatterns = @($benignSeen.Keys)
+                    finished = [bool]$finished; drained = [bool]$drained; stallWarn = [string]$stallWarn
                 }
+            })
+            foreach ($l in @($ge.Logs)) {
+                $lvl = [string]$l.Level
+                if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog ([string]$l.Text) -Level $lvl } else { Write-GdLog ([string]$l.Text) }
             }
+            $completed = @{}
+            if ($null -ne $ge.State.completed) {
+                foreach ($p in $ge.State.completed.PSObject.Properties) { $completed[[string]$p.Name] = [int]$p.Value }
+            }
+            $errors = @($ge.State.errors)
+            $benignSeen = @{}
+            foreach ($p in @($ge.State.benignPatterns)) { $benignSeen[[string]$p] = $true }
+            $finished = [bool]$ge.State.finished
+            $drained = [bool]$ge.State.drained
+            $stallWarn = [string]$ge.State.stallWarn
+            <# ----- 旧回灌段(批次 9 冻结，c498da0 原位备查)----- #>
+            # foreach ($ev in @($g.Events)) {
+            #     switch ([string]$ev.Kind) {
+            #         'finished' {
+            #             $finished = $true
+            #             Write-GdLog "MAA 宣布任务全部完成$(if ($ev.Used) { "(内部计时 $($ev.Used))" })" -Level OK
+            #         }
+            #         'chain' {
+            #             $chain = [string]$ev.Chain
+            #             if (-not $completed.ContainsKey($chain)) { $completed[$chain] = 0 }
+            #             $completed[$chain]++
+            #             Write-GdLog "MAA 完成链路：$chain"
+            #         }
+            #         'stall' {
+            #             $stallWarn = [string]$ev.Msg
+            #             Write-GdLog "MAA 停滞告警：$stallWarn" -Level WARN
+            #         }
+            #         'drained' {
+            #             <#
+            #               MAA 把整条队列跑空了、但过程中有链路报错 —— 它不会自己再跑第二遍。
+            #               这一句和「任务已全部完成」是两种收尾，早先只认后者，于是这种局要一直等到
+            #               「asst.log 静默 22 分钟」才反应得过来(2026-09-25 07:53 那轮实测：6 条链路 0 完成，
+            #               07:56:46 就打出这句，脚本却傻等到 08:19)。认下来，下面立刻处理。
+            #               匹配字面"任务已完成，但出现错误"已搬进 Orchestration.cs 的 parse-maa-gui-lines，
+            #               这里留原话给 t15 断言认锚 —— 改话术改 C#，别动这里的引文。
+            #             #>
+            #             $drained = $true
+            #             Write-GdLog 'MAA 宣布本轮已跑完但有错误(队列已空，它不会再自己动)' -Level WARN
+            #         }
+            #         'error' {
+            #             if ($errors.Count -lt 40) {
+            #                 $errors += [string]$ev.Msg
+            #                 Write-GdLog "MAA 异常线索：$($ev.Msg)" -Level WARN
+            #             }
+            #         }
+            #         'benign' {
+            #             # MAA 有几条 ERR 级前缀其实是正常噪音(实测随后链路照样完成)，别混进"异常线索"里
+            #             if (-not $benignSeen.ContainsKey([string]$ev.Pattern)) {
+            #                 $benignSeen[[string]$ev.Pattern] = $true
+            #                 Write-GdLog "MAA 噪音(已按 benignMaaErrors 忽略)：$($ev.Msg)"
+            #             }
+            #         }
+            #     }
+            # }
         }
 
         <#
@@ -507,9 +546,17 @@ function Invoke-MaaRun {
         if ($tailNow) { break }
     }
 
+    <# 批次 9：挂钟收尾的拼串/数字形(Round(dur/60,1) 的 ToEven 与整数形、"完成链路："前缀)搬进
+       RunLoops.cs(verb：finish-maa-run)。$dur 与排序链表仍是壳的现场量，算好喂进去。
+       旧三行里的两行逐行 # 冻在下面。 #>
     $dur = ((Get-Date) - $started).TotalSeconds
-    Write-GdLog "MAA 日常链路完成，用时 $([math]::Round($dur/60,1)) 分钟" -Level OK
-    return @{ Status = 'ok'; Detail = "完成链路：$(($completed.Keys | Sort-Object) -join ', ')"; Duration = $dur; Errors = $errors }
+    $chainText = (($completed.Keys | Sort-Object) -join ', ')
+    $fin = Invoke-GdCli -Verb 'finish-maa-run' -Body ([pscustomobject]@{ durSec = $dur; chainText = $chainText })
+    foreach ($l in @($fin.Logs)) { Write-GdLog ([string]$l.Text) -Level ([string]$l.Level) }
+    return @{ Status = [string]$fin.Status; Detail = [string]$fin.Detail; Duration = [double]$fin.Duration; Errors = $errors }
+    # ----- 旧挂钟收尾(批次 9 冻结，c498da0 原位备查)-----
+    # Write-GdLog "MAA 日常链路完成，用时 $([math]::Round($dur/60,1)) 分钟" -Level OK
+    # return @{ Status = 'ok'; Detail = "完成链路：$(($completed.Keys | Sort-Object) -join ', ')"; Duration = $dur; Errors = $errors }
 }
 
 function Start-GdArkClient {
