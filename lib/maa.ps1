@@ -263,11 +263,14 @@ function Invoke-MaaRun {
             }
             $completed = @{}
             if ($null -ne $ge.State.completed) {
-                foreach ($p in $ge.State.completed.PSObject.Properties) { $completed[[string]$p.Name] = [int]$p.Value }
+                # 循环变量绝不能写 $p —— PowerShell 变量名不分大小写，$p 会踩掉 170 行的 $P(Get-MaaPaths)，
+                # 下一 tick 380 行 `Test-GdProcessRunning -Name $P.Name` 就绑到空串抛出(2026-09-27 18:00/19:17
+                # 两轮方舟第一拍即死的根因；benignPatterns 只要非空就触发，而 AutoStart 噪音每轮必在)。
+                foreach ($cp in $ge.State.completed.PSObject.Properties) { $completed[[string]$cp.Name] = [int]$cp.Value }
             }
             $errors = @($ge.State.errors)
             $benignSeen = @{}
-            foreach ($p in @($ge.State.benignPatterns)) { $benignSeen[[string]$p] = $true }
+            foreach ($bp in @($ge.State.benignPatterns)) { $benignSeen[[string]$bp] = $true }
             $finished = [bool]$ge.State.finished
             $drained = [bool]$ge.State.drained
             $stallWarn = [string]$ge.State.stallWarn

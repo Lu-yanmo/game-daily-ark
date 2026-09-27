@@ -119,11 +119,13 @@ function Update-GdArkFarmLedger {
         if (Test-GdPathReady $depot) {
             try {
                 $d = Read-GdJson -Path $depot
-                foreach ($p in @($d.data.PSObject.Properties)) {
+                # 循环变量别写 $p：PowerShell 不分大小写，会踩掉本函数 108 行的 $P(Get-MaaPaths)，
+                # 下面 Get-Item -LiteralPath $P.GuiLog 就绑到空串(与 lib\maa.ps1 266 行那族同一个坑)。
+                foreach ($dp in @($d.data.PSObject.Properties)) {
                     $c = 0
-                    if ([int]::TryParse([string]$p.Value, [ref]$c) -and $c -gt 0) {
-                        $inv.byId[$p.Name] = $c
-                        $inv.origin[$p.Name] = 'depot'
+                    if ([int]::TryParse([string]$dp.Value, [ref]$c) -and $c -gt 0) {
+                        $inv.byId[$dp.Name] = $c
+                        $inv.origin[$dp.Name] = 'depot'
                     }
                 }
                 $initialized = "已按 MAA 库存缓存标定初值($($inv.byId.Count) 项，估算)"
