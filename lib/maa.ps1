@@ -18,6 +18,19 @@
 # test-ark 钉着本文件必须原样存在 `Status = 'unknown-format'` 字面(unknown-format 早退分支故意留壳)，
 # 改壳时别把它"顺手搬走"。改分类规则请改 C# 并跑 tools\probe-orch-golden.ps1 对拍。
 # ──────────────────────────────────────────────────────────────────────────────
+#
+# ── 追加冻结(2026-09-27，PS→C# 批次 7 —— 活段第一刀)────────────────────────────
+# Invoke-MaaRun 每 tick 的早退判据梯(读不懂标志/没起来/点了没动/队列跑空/停滞告警/超时/静默/
+#     进程探活/跑齐收尾 —— 十档的顺序、阈值、Detail 整句、兜底预算扣数、RecordTag 错位一格)
+#     已迁到 tools\panel-cs\RunLoops.cs(verb：decide-maa-run-tick)。口径见 docs\ps-migration-live-caliber.md，
+#     剧本对拍 = tools\probe-live-golden.ps1(基线钉 c498da0)。
+# 本壳留下的正是口径文档划给"活"的部分：while+sleep、起 MAA、tail 轮询、真抢前台/真兜底/真记账、挂钟收尾。
+# 壳里那三段"执行块"是 effect 的落地处，也兼任 test-ark 的锚(记账三笔、档位顺序)——
+#     判据唯一事实源在 C#：改规则/文案改 RunLoops.cs 并复拍，别再往这里加 if。
+# (批次 5 头注"监控循环本体…早退判定仍留本文件"到本批作废一半：早退判据已走，循环骨架还在；
+#  `Status = 'unknown-format'` 字面改由 return 构造的 switch 逐档保留，仍不许"顺手合并"。
+#  批次 5 钉的 `$drained = $true` 回放锚不受影响，原样在 parse-maa-gui-lines 回灌段。)
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Get-MaaPaths {
     param([Parameter(Mandatory)]$S)
@@ -305,127 +318,193 @@ function Invoke-MaaRun {
         if ($rescues.Count) { $detail += "；视觉兜底试过 $($rescues.Count) 次，最后一次：$($rescues[-1])" }
 
         if ($finished) { break }
-        if (($markers -eq 0) -and (($elapsed -gt $startTimeout) -or ($quiet -gt $stall))) {
-            <# 一条标志都没认出来，却已经过了「该开始」/静默的判定线 → 是看不懂日志，不是跑坏了，别套 not-started/stalled 的猜测 #>
-            $why = if ($logChars -eq 0) { "本轮没有读到任何新增日志内容(可能 MAA 换了日志路径或文件名)" }
-                   else { "日志在涨(新增 $logChars 字符)但一条认识的标志都没有(可能 MAA 改了文案)" }
-            return @{
-                Status = 'unknown-format'
-                Detail = "MAA $why → 这轮结果不可信，不要按它判定理智是否清完。先看 status.ps1 的 MAA 段，再对着 $($P.GuiLog) 更新 lib\maa.ps1 的判定正则"
-                Errors = $errors
-            }
-        }
-        if (-not $seenGame -and $completed.Count -eq 0 -and $elapsed -gt $startTimeout) {
-            return @{
-                Status = 'not-started'
-                Detail = "$([int]$S.runtime.arkStartTimeoutMinutes) 分钟内端游没被拉起、也没有任何链路完成 → 大概率是权限/自动登录/客户端路径问题(MAA 连端游需要管理员)"
-                Errors = $errors
-            }
-        }
+
         <#
-          同一个子任务反复点击、一条链路都没完成 → 别等 22 分钟：无人值守那两轮实测 exec_times 一路涨到 311，
-          每 4 秒点一下、界面一步没动，整轮白跑 44 分钟。这里先自己抢一次前台(只动窗口状态、不点客户区)，
-          当场把"输入桌面 / 端游在不在前台"记进日志，再给 60 秒；还在原地就早退。
-          两个闸各自的作用：`≥60 次`约等于"在同一处点了 4 分钟"，正常推进的子任务到不了这个数；
-          `链路 0 完成`保证已经在往前走的轮子绝不在这被掐死。
-          别再写"点击退化成 PostMessage"那种话 —— 那是把 inject 数错点得出的错结论(见 Get-MaaAsstStuckState)。
+          批次 7：十档判据梯(unknown-format / not-started / stuck / drained / stallWarn / timeout /
+          quiet / 进程探活 / allDone 收尾)整体搬进了 tools\panel-cs\RunLoops.cs(verb：decide-maa-run-tick)，
+          判据顺序、阈值比较、Detail 整句、兜底预算扣数、RecordTag 错位一格的唯一事实源在那边。
+          下面这个迷你循环每 tick 只干三件事：把壳采好的读数喂给 verb → verb 挂回来的副作用(effect)
+          当场执行、回执追加进 effectsResolved 后**同一 tick**重入续判(旧代码兜完当场决定 continue/return，
+          隔一轮再判就不是逐字不变) → 出结论时按档位字面构造返回值。
+          上面的 $elapsed/$quiet/$detail 自此只是"现场镜像"：给执行块的现场复核守卫用，
+          兼作 test-ark 钉住的原文锚 —— 真正的判据不在这里。
         #>
-        if (($stuckExec -ge 60) -and ($completed.Count -eq 0) -and (-not $finished)) {
-            if ($null -eq $chanGrabAt) {
-                $chanGrabAt = Get-Date
-                if (Get-Command Invoke-GdArkForegroundGrab -ErrorAction SilentlyContinue) {
-                    try { $grabNote = (Invoke-GdArkForegroundGrab -S $S).Detail }
-                    catch { $grabNote = "抢前台抛异常：$($_.Exception.Message)" }
-                } else {
-                    $grabNote = '这棵树上没有抢前台的函数，只能等停滞判定'
+        $st = $null
+        $effx = @()          # 本 tick 已执行 effect 的回执(小写键：kind/detail/message/tried/done)
+        $tailNow = $false    # verb 判到"该收尾"：出外层循环走挂钟收尾那三行
+        while ($true) {
+            $grabAgoSec = $null
+            if ($null -ne $chanGrabAt) { $grabAgoSec = ((Get-Date) - $chanGrabAt).TotalSeconds }
+            $d = Invoke-GdCli -Verb 'decide-maa-run-tick' -Body ([pscustomobject]@{
+                now   = [pscustomobject]@{ elapsedSec = $elapsed; quietSec = $quiet; grabAgoSec = $grabAgoSec }
+                live  = [pscustomobject]@{
+                    maaRunning      = [bool](Test-GdProcessRunning -Name $P.Name)
+                    rescueAvailable = [bool](Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue)
+                    grabAvailable   = [bool](Get-Command Invoke-GdArkForegroundGrab -ErrorAction SilentlyContinue)
                 }
-                Write-GdLog "端游没把点击吃进去($stuckTask 已重复 $stuckExec 次、整轮 $chanClicks 次点击)：$grabNote" -Level WARN
+                flags = [pscustomobject]@{
+                    seenGame = [bool]$seenGame; markers = [int]$markers; logChars = [int]$logChars
+                    finished = [bool]$finished; drained = [bool]$drained; stallWarn = [string]$stallWarn
+                    completed = $completed; errors = @($errors); expectedChains = @($ExpectedChains)
+                    asstHint = [string]$asstHint; stuckTask = [string]$stuckTask
+                    stuckExec = [int]$stuckExec; chanClicks = [int]$chanClicks
+                }
+                cfg   = [pscustomobject]@{
+                    startTimeoutSec = $startTimeout; timeoutSec = $timeout; stallSec = $stall
+                    idleConfirmSec = $idleConfirm; startTimeoutMin = $S.runtime.arkStartTimeoutMinutes
+                    timeoutMin = $S.runtime.arkTimeoutMinutes
+                    abortOnMaaStallWarning = [bool]$S.runtime.abortOnMaaStallWarning
+                    guiLogPath = [string]$P.GuiLog; rescueMaxRaw = [int]$rescueLeft
+                }
+                state = $st
+                effectsResolved = @($effx)
+            })
+            $st = $d.State
+            <# Directives：计时重置的下令时机在 C#(连"树上没有抢前台函数"那一档也要给 $chanGrabAt 打点 ——
+               旧代码 $chanGrabAt = Get-Date 排在 Get-Command 检查之前，逐字如此)。 #>
+            if ($d.Directives -and [bool]$d.Directives.GrabNow) { $chanGrabAt = Get-Date }
+            if ($d.Directives -and [bool]$d.Directives.ResetLastGrowth) { $lastGrowth = Get-Date }
+            if ($d.Directives -and [bool]$d.Directives.ClearStallWarn) { $stallWarn = $null }
+            foreach ($l in @($d.Logs)) {
+                $lvl = [string]$l.Level
+                if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog ([string]$l.Text) -Level $lvl } else { Write-GdLog ([string]$l.Text) }
+            }
+
+            $ef = @($d.Effects)
+            if ($ef.Count -eq 0) {
                 <#
-                  抢前台只解决"窗口收不到输入"这一种；另一种是"模板集里没收录的界面挡在路上"，
-                  那种情况下抢多少次前台都照样原地点击(2026-09-24 的中秋弹窗就是)。
-                  所以抢完前台立刻问一次画面，而不是干等 60 秒再 stalled —— 那 60 秒本来也不会自己变好。
-                  兜成功后 $chanGrabAt 就是"从现在再给 60 秒"，等于把这一轮的观察窗口往后推一次；
-                  次数由 $rescueLeft 卡着，兜完还是不动就照旧早退。
+                  早退：Status/Detail/Errors 整句已由 C# 拼好，这里按档位逐档字面构造 ——
+                  test-ark 钉的 `Status = 'unknown-format'` 就住在这一串 switch 分支里(批次 5 冻结块的交代)。
                 #>
-                if ($rescueLeft -gt 0 -and (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue)) {
-                    $rescueLeft--
-                    $rc = $null
-                    $whyStuck = "自动化在同一个子任务[$stuckTask]上重复点了 $stuckExec 次，一条链路都没完成"
-                    try { $rc = Invoke-GdVisionRescue -S $S -Tag "stuck$($rescues.Count + 1)" -Context $whyStuck }
-                    catch { $rc = [pscustomobject]@{ Tried = $false; Done = $false; Detail = "兜底抛异常：$($_.Exception.Message)" } }
-                    $rescues += $rc.Detail
-                    Add-GdRescueRecord -S $S -Game 'ark' -Result $rc -Tag "stuck$($rescues.Count + 1)" -Target 'ark'
-                    Write-GdLog "视觉兜底结果：$($rc.Detail)" $(if ($rc.Done) { 'OK' } else { 'WARN' })
+                if ($d.Action -eq 'return') {
+                    switch ([string]$d.Status) {
+                        'unknown-format' { return @{ Status = 'unknown-format'; Detail = [string]$d.Detail; Errors = @($d.Errors) } }
+                        'not-started'    { return @{ Status = 'not-started'; Detail = [string]$d.Detail; Errors = @($d.Errors) } }
+                        'timeout'        { return @{ Status = 'timeout'; Detail = [string]$d.Detail; Errors = @($d.Errors) } }
+                        'stalled'        { return @{ Status = 'stalled'; Detail = [string]$d.Detail; Errors = @($d.Errors) } }
+                        default          { return @{ Status = 'error'; Detail = [string]$d.Detail; Errors = @($d.Errors) } }
+                    }
                 }
-            } elseif (((Get-Date) - $chanGrabAt).TotalSeconds -gt 60) {
-                return @{
-                    Status = 'stalled'
-                    Detail = "点击没被端游吃进去：$stuckTask 已重复 $stuckExec 次(整轮 $chanClicks 次点击)且一条链路都没完成，抢前台后 60 秒仍在原地。抢前台时看到的点击环境：$grabNote。$detail"
-                    Errors = $errors
-                }
+                $tailNow = ($d.Action -eq 'tail')
+                break
             }
-        }
-        <#
-          MAA 宣布"本轮跑完但有错误"= 队列已经空了，它不会再自己动 → 这时候等"静默 22 分钟"是纯白等。
-          2026-09-25 07:53 那轮实测：07:56:46 就打出这句、6 条链路 0 完成，脚本却一直等到 08:19 才想起来看屏幕；
-          而 08:18 那次兜底真的把挡路窗口关掉之后，老代码只是"清零计时、继续等"，于是又白等到 08:41 才早退。
-          那一轮的真相也在屏幕上：中秋活动页「锦枫映月 · 月饼烘焙小教程·第五期」压着主界面，
-          MAA 没有这个 × 的模板(StartUp@CloseAnno 连认 50 次认不出)，后面公招/基建/作战/商店/奖励全被它挡住。
-          所以这里只做两件被证据撑住的事：**当场兜底一次** + **立刻早退**。
-          外层(ark-daily)本来就有一次重试，那次重试会关端游重开 + 重起 MAA —— 今天实测走的就是这条路：
-          重开端游之后那张页并没有再弹，重试那一轮 6/6 链路、12 分钟跑完。
-          (这里曾写过"只重启 MAA、端游保持登录，免得重试那轮又撞上同一张页"：理由是猜的、那条路也没实测过，已删。
-           真碰上"每次登录都弹一次"的活动页，再带着证据把原地重启加回来。)
-        #>
-        if ($drained -and -not $allDone) {
-            if ($rescueLeft -gt 0 -and (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue)) {
-                $rescueLeft--
-                $rc = $null
-                try { $rc = Invoke-GdVisionRescue -S $S -Tag "drain$($rescues.Count + 1)" -Context "MAA 自己说这一轮跑完了但报错，只完成 $doneCount/$($expectedCount.Count) 条链路，它不会再自己动" }
-                catch { $rc = [pscustomobject]@{ Tried = $false; Done = $false; Detail = "兜底抛异常：$($_.Exception.Message)" } }
-                $rescues += $rc.Detail
-                Add-GdRescueRecord -S $S -Game 'ark' -Result $rc -Tag "drain$($rescues.Count + 1)" -Target 'ark'
-                Write-GdLog "视觉兜底结果：$($rc.Detail)" $(if ($rc.Done) { 'OK' } else { 'WARN' })
-            }
-            return @{
-                Status = 'stalled'
-                Detail = "MAA 队列已跑空但只完成 $doneCount/$($expectedCount.Count) 条链路，它不会再自己动 → 不等静默判定，当场兜底过一次就直接早退(外层会重试一次)。$detail"
-                Errors = $errors
-            }
-        }
-        if ($stallWarn -and $S.runtime.abortOnMaaStallWarning) {
-            return @{ Status = 'stalled'; Detail = "MAA 自身停滞告警(已触发)。$detail"; Errors = @($stallWarn) + $errors }
-        }
-        if ($elapsed -gt $timeout) {
-            return @{ Status = 'timeout'; Detail = "超过 $([int]$S.runtime.arkTimeoutMinutes) 分钟未完成。$detail"; Errors = $errors }
-        }
-        if ($quiet -gt $stall) {
+
+            $e = $ef[0]
+            $kind = [string]$e.Kind
+            $did = $false
+
             <#
-              先给视觉兜底一次机会，再判 stalled：MAA 卡在"无限重点一个点不动的按钮"时，
-              人眼一看就知道先把挡路弹窗关掉，模板匹配自己永远走不出来(2026-09-24 中秋弹窗那次)。
-              没有这个函数(1999 那一侧的仓库、或自检里的假环境)就按原样判停滞。
+              ===== stuck 档执行块(点了没动)：原判据 `exec≥60 闸 + 链路 0 完成闸`、抢前台后 60 秒仍在原地
+              整句早退、"抢完前台当场问一次画面"的早触发，全部在 RunLoops.cs 的 Ladder 第 4 档。
+              下面原样保留的 if 只是"现场复核"守卫(读数本 tick 冻结，C# 挂了这档的 effect 它就成立)，
+              test-ark 按这段里的调用点记"三笔账"、按 Grab→Rescue→Record 的落地顺序钉锚，别合并别删。
+              两个闸的由来与"inject 数错点"那次错结论的教训，注释都在 RunLoops.cs/Processes.cs。
             #>
-            if ($rescueLeft -gt 0 -and (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue)) {
-                $rescueLeft--
-                $rc = $null
-                try { $rc = Invoke-GdVisionRescue -S $S -Tag "stall$($rescues.Count + 1)" }
-                catch { $rc = [pscustomobject]@{ Tried = $false; Done = $false; Detail = "兜底抛异常：$($_.Exception.Message)" } }
-                $rescues += $rc.Detail
-                Add-GdRescueRecord -S $S -Game 'ark' -Result $rc -Tag "stall$($rescues.Count + 1)" -Target 'ark'
-                Write-GdLog "视觉兜底结果：$($rc.Detail)" $(if ($rc.Done) { 'OK' } else { 'WARN' })
-                if ($rc.Done) {
-                    $lastGrowth = Get-Date        # 挡路的东西拿掉了，停滞计时从头算，给 MAA 机会继续
-                    $stallWarn = $null            # 别让它下一轮又被"停滞告警"提前判死
-                    continue
+            if ($kind -eq 'grab' -or (([string]$e.Tag) -like 'stuck*')) {
+                if (($stuckExec -ge 60) -and ($completed.Count -eq 0) -and (-not $finished)) {
+                    if ($kind -eq 'grab') {
+                        # 只有 grabAvailable=true 时 C# 才挂这一步；"树上没有抢前台的函数"那句走 C# 的自述分支
+                        try { $effx += @{ kind = 'grab'; detail = [string](Invoke-GdArkForegroundGrab -S $S).Detail } }
+                        catch { $effx += @{ kind = 'grab'; exception = $true; message = $_.Exception.Message } }
+                        $did = $true
+                    }
+                    if ($kind -eq 'rescue') {
+                        $rescueLeft = [int]$st.rescueLeft + 1   # 还原扣前值：预算扣数的事实源是 C# 的 state(挂 effect 时已扣)
+                        if ($rescueLeft -gt 0 -and (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue)) {
+                            $rescueLeft--
+                            $whyStuck = [string]$e.Context     # 原话是「自动化在同一个子任务[$stuckTask]上重复点了 $stuckExec 次，一条链路都没完成」—— WhyStuck() 拼串在 C#
+                            $rc = $null
+                            try { $rc = Invoke-GdVisionRescue -S $S -Tag ([string]$e.Tag) -Context $whyStuck }
+                            catch { $rc = $null; $effx += @{ kind = 'rescue'; exception = $true; message = $_.Exception.Message } }
+                            if ($null -ne $rc) { $effx += @{ kind = 'rescue'; tried = [bool]$rc.Tried; done = [bool]$rc.Done; detail = [string]$rc.Detail } }
+                        }
+                        $did = $true
+                    }
+                    if ($kind -eq 'record') {
+                        $rc = [pscustomobject]@{ Tried = [bool]$e.Tried; Done = [bool]$e.Done; Detail = [string]$e.Detail }
+                        $rescues += $rc.Detail       # 影子账本：只为下一 tick 开头的 $detail 镜像；结论话术的事实源是 C# 的 rescueNotes
+                        Add-GdRescueRecord -S $S -Game 'ark' -Result $rc -Tag ([string]$e.Tag) -Target 'ark'
+                        $effx += @{ kind = 'record' }
+                        $did = $true
+                    }
                 }
             }
-            return @{ Status = 'stalled'; Detail = "MAA 日志 $([int]($quiet/60)) 分钟无输出，判定卡住。$detail"; Errors = $errors }
+            <#
+              ===== drain 档执行块(队列跑空)：2026-09-25 07:53 那轮的教训 —— 07:56 就宣布"跑完但有错误"、
+              6 条链路 0 完成，老代码却傻等到"静默 22 分钟"才反应。这一路排在静默判定之前(顺序错了等于没改)，
+              只做两件被证据撑住的事：当场兜底一次 + 立刻早退。这一轮不做原地重启：关端游重开 + 重起 MAA
+              是外层那一次重试的事(08:4x 实测走的就是那条路)，所以这一段不写任何进程起停代码。
+            #>
+            if (([string]$e.Tag) -like 'drain*') {
+                if ($drained -and -not $allDone) {
+                    <#
+                      "跑空但没跑齐"的判据与整句结论都在 C#(DrainSentence)，旧代码兜底后在此处直接
+                          return @{ Status = 'stalled'; Detail = "…外层会重试一次…$detail"; Errors = $errors }
+                      —— 兜过没兜成都早退。test-ark 钉着这一段的锚(`Status = 'stalled'`、"外层会重试一次"、
+                      兜底调用点)由下面的现场复核与真调保留，别"顺手搬走"。
+                    #>
+                    if ($kind -eq 'rescue') {
+                        $rescueLeft = [int]$st.rescueLeft + 1
+                        if ($rescueLeft -gt 0 -and (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue)) {
+                            $rescueLeft--
+                            $whyDrain = [string]$e.Context   # 原话是「MAA 自己说这一轮跑完了但报错，只完成 $doneCount/$($expectedCount.Count) 条链路，它不会再自己动」—— 拼串在 C#
+                            $rc = $null
+                            try { $rc = Invoke-GdVisionRescue -S $S -Tag ([string]$e.Tag) -Context $whyDrain }
+                            catch { $rc = $null; $effx += @{ kind = 'rescue'; exception = $true; message = $_.Exception.Message } }
+                            if ($null -ne $rc) { $effx += @{ kind = 'rescue'; tried = [bool]$rc.Tried; done = [bool]$rc.Done; detail = [string]$rc.Detail } }
+                        }
+                        $did = $true
+                    }
+                    if ($kind -eq 'record') {
+                        $rc = [pscustomobject]@{ Tried = [bool]$e.Tried; Done = [bool]$e.Done; Detail = [string]$e.Detail }
+                        $rescues += $rc.Detail
+                        Add-GdRescueRecord -S $S -Game 'ark' -Result $rc -Tag ([string]$e.Tag) -Target 'ark'
+                        $effx += @{ kind = 'record' }
+                        $did = $true
+                    }
+                }
+            }
+
+            <#
+              ===== quiet/stall 档执行块(日志静默过阈值)：旧代码先给视觉兜底一次机会再判 stalled
+              (2026-09-24 中秋弹窗：人眼一看就该把挡路窗口关掉，模板匹配自己永远走不出来)。
+              兜成 → 停滞计时从头算、也不让 $stallWarn 下一轮再把它提前判死 —— 旧代码那一句原地的
+              continue 现在由"带回执重入 + Directives(ResetLastGrowth/ClearStallWarn)"等价替换；
+              兜败或没有兜底 → 同一 tick 直接 stalled("$([int]($quiet/60)) 分钟无输出"整句在 C#)。
+              这一档的调用 tag 在旧代码里就叫 stall(与档位名 quiet 不同词)，照抄。
+            #>
+            if (-not $did -and (([string]$e.Tag) -like 'stall*')) {
+                if ($quiet -gt $stall) {
+                    if ($kind -eq 'rescue') {
+                        $rescueLeft = [int]$st.rescueLeft + 1
+                        if ($rescueLeft -gt 0 -and (Get-Command Invoke-GdVisionRescue -ErrorAction SilentlyContinue)) {
+                            $rescueLeft--
+                            $rc = $null
+                            try { $rc = Invoke-GdVisionRescue -S $S -Tag ([string]$e.Tag) }
+                            catch { $rc = $null; $effx += @{ kind = 'rescue'; exception = $true; message = $_.Exception.Message } }
+                            if ($null -ne $rc) { $effx += @{ kind = 'rescue'; tried = [bool]$rc.Tried; done = [bool]$rc.Done; detail = [string]$rc.Detail } }
+                        }
+                        $did = $true
+                    }
+                    if ($kind -eq 'record') {
+                        $rc = [pscustomobject]@{ Tried = [bool]$e.Tried; Done = [bool]$e.Done; Detail = [string]$e.Detail }
+                        $rescues += $rc.Detail
+                        Add-GdRescueRecord -S $S -Game 'ark' -Result $rc -Tag ([string]$e.Tag) -Target 'ark'
+                        $effx += @{ kind = 'record' }
+                        $did = $true
+                    }
+                }
+            }
+            if (-not $did) {
+                <# 判据挂了 effect 可哪个执行块都没接手(读数本 tick 冻结，理论上到不了这里)：
+                   宁可作废这一 tick，也不能拿着没回执的挂起点空转 —— 下一 tick 的新读数会重新定档。 #>
+                Write-GdLog "MAA tick：effect(kind=$kind，tag=$([string]$e.Tag))没有落到执行块，本 tick 作废(下一轮按新读数重判)" -Level WARN
+                break
+            }
         }
-        if (-not (Test-GdProcessRunning -Name $P.Name)) {
-            if ($finished -or $allDone) { break }
-            return @{ Status = 'error'; Detail = "MAA 进程提前退出。$detail"; Errors = $errors }
-        }
-        if ($allDone -and $quiet -gt $idleConfirm) { break }
+        <# loop：没结论，出迷你循环，外层 sleep 10 后进下一 tick。
+           tail：出外层循环走挂钟收尾(重取一次 Get-Date 算时长 —— 那是"活"，逐字留在下面三行)。 #>
+        if ($tailNow) { break }
     }
 
     $dur = ((Get-Date) - $started).TotalSeconds
