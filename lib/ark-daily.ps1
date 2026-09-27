@@ -20,6 +20,14 @@
 # -Stage 时旧代码不会进 append 档，一次调用会把这条顺序语义弄丢。改规则请改 C# 并跑
 # tools\probe-orch-golden.ps1 对拍，不要在这里加规则。
 # ──────────────────────────────────────────────────────────────────────────────
+#
+# ── 追加冻结(2026-09-27，PS→C# 批次 8)─────────────────────────────────────────
+# Start-GdArkDaily 的重试分流(`Status -notin {ok,not-started,unknown-format}` ∧ retryOnce → 重试一次、
+#  否则 unknown-format 落 ERROR 整句)已迁到 tools\panel-cs\Orchestration.cs(verb：decide-daily-retry，
+#  -Game ark)。壳里留的正是"活"：Stop-MaaAndGame、sleep 25、重跑 $run、提权提示那记独立 if。
+#  旧分流在原地逐行 # 前缀冻结(test-ark:163 钉 `Status -notin @(…)` 字面锚，别"顺手搬走")。
+#  改分流规则/话术请改 Orchestration.cs 并复拍 tools\probe-live-golden.ps1，不要在这里加 if。
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Set-GdArkAck {
     <# -AckArk：确认"这个活动的图我自己手动打过了" → 之后日常才允许自动刷活动关卡 #>
@@ -138,13 +146,32 @@ function Start-GdArkDaily {
         Invoke-MaaRun -S $S -ExpectedChains $maaCfg.ExpectedChains
     }
     $r = Invoke-GdStep -Name '方舟' -Body $run
-    if ($r.Status -notin @('ok', 'not-started', 'unknown-format') -and $S.runtime.retryOnce) {
-        Write-GdLog '方舟本轮未成功 → 收尾后重试一次' -Level WARN
+    <#
+      ===== 批次 8：重试分流改问 decide-daily-retry(Orchestration.cs，-Game ark) =====
+      跳过清单、retryOnce 合取与两句文案住在 C#；本壳只回放日志 + 落地"活"(收尾/重跑)。
+      旧两分支逐行 # 前缀冻结在下方(test-ark:163 钉 `Status -notin @(…)` 字面锚)。
+    #>
+    #     if ($r.Status -notin @('ok', 'not-started', 'unknown-format') -and $S.runtime.retryOnce) {
+    #         Write-GdLog '方舟本轮未成功 → 收尾后重试一次' -Level WARN
+    #         Stop-MaaAndGame -S $S
+    #         Start-Sleep -Seconds 25
+    #         $r = Invoke-GdStep -Name '方舟重试' -Body $run
+    #     } elseif ($r.Status -eq 'unknown-format') {
+    #         Write-GdLog '方舟日志标志一条都没认出来 → 重试同样看不懂，直接记入本轮告警(见下面的处理建议)' -Level ERROR
+    #     }
+    $d = Invoke-GdCli -Verb 'decide-daily-retry' -Body ([pscustomobject]@{
+        game      = 'ark'
+        status    = [string]$r.Status
+        retryOnce = [bool]$S.runtime.retryOnce
+    })
+    foreach ($l in @($d.Logs)) {
+        $lvl = [string]$l.Level
+        if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog ([string]$l.Text) -Level $lvl } else { Write-GdLog ([string]$l.Text) }
+    }
+    if ([bool]$d.Retryable) {
         Stop-MaaAndGame -S $S
         Start-Sleep -Seconds 25
         $r = Invoke-GdStep -Name '方舟重试' -Body $run
-    } elseif ($r.Status -eq 'unknown-format') {
-        Write-GdLog '方舟日志标志一条都没认出来 → 重试同样看不懂，直接记入本轮告警(见下面的处理建议)' -Level ERROR
     }
     if ($r.Status -eq 'not-started' -and -not (Test-GdAdmin)) {
         Write-GdLog '方舟这一路要管理员权限：去掉 -NoElevate(或用 run-daily.cmd / 计划任务)重跑即可自动提权' -Level ERROR
