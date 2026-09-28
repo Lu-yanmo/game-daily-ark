@@ -173,6 +173,67 @@ function Start-GdArkDaily {
         Start-Sleep -Seconds 25
         $r = Invoke-GdStep -Name '方舟重试' -Body $run
     }
+    <# ===== 认关止损(2026-09-28 新增，非冻结段；判定规则在 C# detect-maa-fight-skip) =====
+       09-28 06:00 实测：我们写的 StagePlan 三关确实落了盘(MAA 开机 .bak 里 farm 参数都在)，
+       但 MAA 加载时把当日不可选的关修剪出计划、剩下的也不开放 → 整条 Fight 跳过，随后照常宣布
+       「任务已全部完成」→ 判定层拿到假 ok，理智白放。三步止损：
+       认跳关(只押「关卡计划内没有当日开放的关卡」) → 剔掉补刷关重试一次(能保长草理智就保) →
+       重试仍跳则认栽：记当日标记(state\ark-fight-skip-mark.json)，当天后续轮不再前置 farm 关空试。
+       这一步在既有 decide-daily-retry 分流**之后**再判：ok 轮外层分流根本不会动，互不踩脚。 #>
+    if ($r.Status -eq 'ok') {
+        $skip = $null
+        try { $skip = Get-GdMaaFightSkip -S $S } catch { Write-GdLog "认关检查没做起来：$($_.Exception.Message)(不影响本轮)" -Level WARN }
+        if ($skip -and [bool]$skip.Skipped) {
+            $farmPlanV = Get-GdMapValue $ark 'Farm'
+            $farmStages = @(if ($farmPlanV) { foreach ($st in @(Get-GdMapValue $farmPlanV 'Stages')) { [string]$st } })
+            $planTxt = if (@($skip.Plan).Count) { (@($skip.Plan) -join ',') } else { '空' }
+            Write-GdLog "MAA 认库后本轮的关计划实况是[$planTxt]并判「关卡计划内没有当日开放的关卡」(证据：$(@($skip.Evidence) -join ' / ')) → 整条 Fight 被跳过，这个 ok 是假的" -Level WARN
+            $leanStages = @(foreach ($st in ($ark.Stage -split '[,，、;；\s]+')) { if ($st -and ($farmStages -notcontains [string]$st)) { [string]$st } })
+            $recovered = $false
+            $giveUp = $false
+            if ($farmStages.Count -gt 0 -and $leanStages.Count -gt 0) {
+                Write-GdLog "剔掉补刷关($($farmStages -join ','))后还剩 $($leanStages -join ',') → 收尾后按纯长草计划重试一次(保长草理智)" -Level WARN
+                Stop-MaaAndGame -S $S
+                Start-Sleep -Seconds 25
+                $lean = @{
+                    Source = 'auto'; Mode = [string]$ark.Mode; Stage = ($leanStages -join ',')
+                    ClearSanity = [bool]$ark.ClearSanity
+                    EventKey = $ark.EventKey; EventTip = $ark.EventTip; StageHint = $ark.StageHint
+                }
+                $maaCfg2 = Set-MaaDailyConfig -S $S -Decision $lean -Apply
+                $maaCfg2.Changes | ForEach-Object { Write-GdLog "  MAA(剔关重试)：$_" }
+                $runLean = {
+                    # 与 $run 同款：拉端游必须在体重试里，剔关重试同样是"关干净重开"的一轮。
+                    if ($S.runtime.launchArkFromHelper -ne $false) {
+                        if (-not (Start-GdArkClient -S $S)) { Write-GdLog '端游窗口没等到：MAA 大概会报"未找到窗口"，仍继续' -Level WARN }
+                    }
+                    Invoke-MaaRun -S $S -ExpectedChains $maaCfg2.ExpectedChains
+                }
+                $r2 = Invoke-GdStep -Name '方舟剔关重试' -Body $runLean
+                $r = $r2
+                $skip2 = $null
+                try { $skip2 = Get-GdMaaFightSkip -S $S } catch { Write-GdLog "第二次认关检查没做起来：$($_.Exception.Message)" -Level WARN }
+                if ($skip2 -and [bool]$skip2.Skipped) {
+                    $giveUp = $true
+                    Write-GdLog "剔关重试仍被 MAA 判全关(计划实况：$(if (@($skip2.Plan).Count) { (@($skip2.Plan) -join ',') } else { '空' })) → 今日理智关卡确认全关" -Level WARN
+                } elseif ($r2.Status -eq 'ok') {
+                    $recovered = $true
+                    Write-GdLog "剔关重跑后 Fight 正常打了，长草理智保住 → 今天不记认栽标记" -Level OK
+                } else {
+                    Write-GdLog "剔关重试本轮以 $($r2.Status) 收场，说不死关卡开没开 → 不记认栽标记(明天照常)" -Level WARN
+                }
+            } else {
+                $giveUp = $true
+                Write-GdLog '本轮没有可剔的补刷关(或剔完计划就空了) → 直接认今日全关' -Level WARN
+            }
+            if ($giveUp) {
+                $mk = Set-GdArkFightSkipMark -S $S -Stages @((($ark.Stage -split ',') | Where-Object { $_ })) -Reason 'MAA 判「关卡计划内没有当日开放的关卡」'
+                Write-GdLog "已记今日认栽标记($($mk.Date))：当天后续轮不再前置补刷关；若游戏里确有当日开放的图，可 -FarmArk 专用轮指定开放关补刷(专用轮不吃这条防线)" -Level WARN
+                $tailNote = 'Fight 被 MAA 判全关(认栽，已记当日标记)'
+                if ($r.Detail) { $r.Detail = "$($r.Detail)；$tailNote" } else { $r.Detail = $tailNote }
+            }
+        }
+    }
     if ($r.Status -eq 'not-started' -and -not (Test-GdAdmin)) {
         Write-GdLog '方舟这一路要管理员权限：去掉 -NoElevate(或用 run-daily.cmd / 计划任务)重跑即可自动提权' -Level ERROR
     }

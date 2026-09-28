@@ -57,6 +57,25 @@ function Get-MaaPaths {
     }
 }
 
+function Get-GdMaaFightSkip {
+    <# 认关止损(2026-09-28 新增)：从 gui.log 读 MAA 本轮的跳关回执。
+       判定本体在 C#(detect-maa-fight-skip，Orchestration.cs)：只押最后一次 GUI started 之后、
+       「关卡计划内没有当日开放的关卡」这一句；「理智作战: … 任务跳过」理智已满等其它起因也会出，
+       只作旁证计数。本壳只做现场读盘(Get-GdFileTail 全量)与形状整理，不加任何 if 判定。 #>
+    param([Parameter(Mandatory)]$S)
+    $P = Get-MaaPaths -S $S
+    if (-not (Test-Path -LiteralPath $P.GuiLog)) { return $null }
+    $tail = Get-GdFileTail -Path $P.GuiLog -Offset 0
+    if (-not $tail.Text) { return $null }
+    $d = Invoke-GdCli -Verb 'detect-maa-fight-skip' -Body ([pscustomobject]@{ text = [string]$tail.Text })
+    return [pscustomobject]@{
+        Skipped   = [bool]$d.Skipped
+        Plan      = @($d.Plan)
+        TaskSkips = [int]$d.TaskSkips
+        Evidence  = @($d.Evidence)
+    }
+}
+
 function Get-MaaAsstStuckState {
     <#
       转发壳(parse-asst-state)：四个"当前状态"的抠法与 inject≠点击通道的实测教训都在 Processes.cs 注释里。

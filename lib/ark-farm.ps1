@@ -27,6 +27,30 @@
 function Get-GdArkFarmInventoryPath { Join-Path $global:GD.State 'ark-inventory.json' }
 function Get-GdArkFarmDropTablePath { Join-Path $global:GD.State 'ark-droptable.json' }
 function Get-GdArkFarmDropsPath    { Join-Path $global:GD.State 'ark-farm-drops.json' }
+function Get-GdArkFightSkipMarkPath { Join-Path $global:GD.State 'ark-fight-skip-mark.json' }
+
+function Set-GdArkFightSkipMark {
+    <# 「今日关卡全关」认栽标记(2026-09-28 认关止损)：MAA 判全关、剔关重试也救不回来时写当天日期。
+       后续同日的轮读到它就不再前置补刷关(不再空试一轮)；隔天日期不符自然失效，不需要谁去清。 #>
+    param([Parameter(Mandatory)]$S, [array]$Stages = @(), [string]$Reason = '')
+    $obj = [ordered]@{
+        Date   = (Get-Date).ToString('yyyy-MM-dd')
+        Stages = @($Stages)
+        Reason = $Reason
+    }
+    Write-GdJson -Path (Get-GdArkFightSkipMarkPath) -Object $obj
+    return $obj
+}
+
+function Test-GdArkFightSkipMarkToday {
+    <# 只读：今天是否已经认栽。文件不在/读坏了都答 $false —— 认栽防线宁可失效也不拦正常轮。 #>
+    param([Parameter(Mandatory)]$S)
+    $p = Get-GdArkFightSkipMarkPath
+    if (-not (Test-Path -LiteralPath $p)) { return $false }
+    $m = $null
+    try { $m = Read-GdJson -Path $p } catch { return $false }
+    return (([string]$m.Date) -eq (Get-Date).ToString('yyyy-MM-dd'))
+}
 
 function Get-GdArkItemMaps {
     <# MAA 自带 resource/item_index.json → 材料名↔代号两张表(进程内缓存)。
@@ -276,6 +300,12 @@ function Resolve-GdArkFarmDecision {
 
     if (-not $Dedicated -and $S.ark.farmAppend -eq $false) { return $null }
     if (-not $Dedicated -and [string]$Decision.Mode -ne 'idle') { return $null }
+    <# 今日已认栽(MAA 判关卡计划内没有当日开放的关卡，剔关重试也全关) → 顺带档不再前置补刷关，
+       当天后续轮直接按长草计划走，不陪 MAA 空试。-FarmArk 专用轮是人的明确指令，不吃这条防线。 #>
+    if (-not $Dedicated -and (Test-GdArkFightSkipMarkToday -S $S)) {
+        Write-GdLog '补刷前置今日已认栽(MAA 判关卡全关) → 本轮不前置补刷关，按长草计划走'
+        return $null
+    }
 
     $maps = Get-GdArkItemMaps -S $S
     $led = Read-GdArkFarmLedger -S $S
