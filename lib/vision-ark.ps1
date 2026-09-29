@@ -16,154 +16,23 @@
 # 本文件只迁走一段：Get-GdArkDesktopState 的**文案拼装段**(桌面名三分支、前台归属、窗口状态、
 # 光标、'；'拼串与 Locked 的"不知道"语义) → verb compose-ark-desktop-state，住在 tools\panel-cs\Vision.cs。
 # 改那句人话请改 Vision.cs 并跑 tools\probe-vision-golden.ps1 对拍，不要在这里拼文案。
-# 故意留下的：P/Invoke 块(GdWin)、Get-GdArkWindow、Save-GdWindowShot、Send-GdArkClick、
-# Invoke-GdArkForegroundGrab、New-GdVisionTarget-ark —— 全是拍窗口/点窗口/闭包靶子的现场动作，
-# 而且 t14 把 P/Invoke 名单与 fnGrab 的 st.Detail 直接钉在函数定义文本上。
+# 故意留下的：Get-GdArkWindow、Save-GdWindowShot、Send-GdArkClick、Invoke-GdArkForegroundGrab、
+# New-GdVisionTarget-ark —— 全是拍窗口/点窗口/闭包靶子的现场动作，t14 把 fnGrab 的 st.Detail 钉在
+# 函数定义文本上。P/Invoke 块(GdWin/GdRect/GdPoint)已在 B0③b(2026-09-29)逐字搬进
+# tools\gdinterop\GdWin.cs，由 lib\common.ps1 的 Add-GdInterop 现编；这里的 Add-GdRescueTypeDef 只剩
+# 一句装载守卫，t14 那两条钉 P/Invoke 名单的形断言同步改成读那份 .cs 的文本。
 
 $global:GdRescueTypeDef = $false
 
 function Add-GdRescueTypeDef {
-    <# 只编译 P/Invoke 签名。Store 版 pwsh 7 里 Add-Type 一旦引用 System.Drawing 的类型就会
-       CS0012(找不到 System.Private.Windows.GdiPlus)直接编不过 —— 所以 Bitmap/Graphics 全留在
-       PowerShell 侧调，C# 这边只当 user32 的传声筒。 #>
+    <# B0(2026-09-29) 起这里不再内联 C#：那二十来个 user32 签名逐字搬进 tools\gdinterop\GdWin.cs，
+       现编由 lib\common.ps1 的 Add-GdInterop 负责(与 GdPower/GdDesk/GdSettingChange 编进同一份装配)。
+       函数留着是因为四个调用点(Get-GdArkDesktopState / Invoke-GdArkForegroundGrab / Save-GdWindowShot /
+       Send-GdArkClick)都调它，而 tools\test-ark.ps1 的 t14 认的是这个函数名。
+       编不过要抛一句(与旧 `Add-Type ... -ErrorAction Stop` 同形)：调用方那一层本来就把它当
+       「这一轮拍不到 / 点不动」处理。别改成静默 —— GdDesk.cs 头里那条「编译失败但类型不落地」就是静默的代价。 #>
     if ($global:GdRescueTypeDef) { return }
-    Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-
-public struct GdRect { public int Left; public int Top; public int Right; public int Bottom; }
-public struct GdPoint { public int X; public int Y; }
-
-public static class GdWin
-{
-    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out GdRect r);
-    [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out GdRect r);
-    [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref GdPoint p);
-    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdcBlt, uint nFlags);
-    [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
-    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
-    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
-    [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr wParam, IntPtr lParam);
-    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int nCmdShow);
-    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
-    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-    [DllImport("user32.dll")] public static extern bool GetCursorPos(out GdPoint p);
-    [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, IntPtr dwExtraInfo);
-    [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, IntPtr dwExtraInfo);
-    [DllImport("user32.dll", SetLastError = true)] public static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesktopAccess);
-    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    public static extern bool GetUserObjectInformationW(IntPtr hObj, int nIndex, System.Text.StringBuilder pvInfo, uint nLength, out uint lpnLengthNeeded);
-    [DllImport("user32.dll")] public static extern bool CloseDesktop(IntPtr hDesktop);
-    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint lpdwProcessId);
-
-    public static GdRect WindowRect(IntPtr h)  { GdRect r; GetWindowRect(h, out r);  return r; }
-
-    // 下面三个都是"看一眼现场"的只读调用，给点击环境探测用：不动窗口、不点客户区、不动鼠标。
-    public static bool Visible(IntPtr h) { return IsWindowVisible(h); }
-    public static string CursorText()
-    {
-        GdPoint p;
-        if (!GetCursorPos(out p)) { return ""; }
-        return p.X + "," + p.Y;
-    }
-    public static string WindowRectText(IntPtr h)
-    {
-        GdRect r;
-        if (!GetWindowRect(h, out r)) { return ""; }
-        return r.Left + "," + r.Top + " " + (r.Right - r.Left) + "x" + (r.Bottom - r.Top);
-    }
-
-    // SW_RESTORE：把最小化的窗口放回来。掉线/MAA 收尾都会把端游最小化，那时
-    // GetWindowRect 给的是屏幕外那个占位矩形(-32000,-32000，168x29)，拍出来必然是空东西。
-    // 这是窗口状态调用，不是客户区输入，所以不会误点游戏里的按钮。
-    public static bool Restore(IntPtr h) { return ShowWindow(h, 9); }
-    public static GdRect ClientRect(IntPtr h)  { GdRect r; GetClientRect(h, out r);  return r; }
-
-    // 客户区左上角在屏幕上的位置：窗口位图(整窗) → 客户区坐标(PostMessage 要的那个)要靠它换算
-    public static GdPoint ClientOrigin(IntPtr h)
-    {
-        GdPoint p = new GdPoint(); p.X = 0; p.Y = 0;
-        ClientToScreen(h, ref p);
-        return p;
-    }
-
-    public static IntPtr PackClient(int x, int y)
-    {
-        // LPARAM = MAKELONG(x, y)：低 16 位 x、高 16 位 y(客户区坐标，不是屏幕坐标)
-        return (IntPtr)(int)(((uint)(y & 0xFFFF) << 16) | (uint)(x & 0xFFFF));
-    }
-
-    public static bool ClickOnce(IntPtr h, int x, int y)
-    {
-        // WM_NCHITTEST 那套不走，游戏客户端要的是客户区的鼠标消息：MOVE → DOWN(带 MK_LBUTTON) → UP
-        PostMessage(h, 0x0200, IntPtr.Zero, PackClient(x, y));          // WM_MOUSEMOVE
-        System.Threading.Thread.Sleep(120);
-        bool a = PostMessage(h, 0x0201, (IntPtr)0x0001, PackClient(x, y));   // WM_LBUTTONDOWN, wParam=MK_LBUTTON
-        System.Threading.Thread.Sleep(90);
-        bool b = PostMessage(h, 0x0202, IntPtr.Zero, PackClient(x, y));      // WM_LBUTTONUP
-        return a && b;
-    }
-
-    // 客户区坐标 → 屏幕坐标(真实鼠标只认屏幕坐标)
-    public static GdPoint ToScreen(IntPtr h, int clientX, int clientY)
-    {
-        GdPoint p = new GdPoint(); p.X = clientX; p.Y = clientY;
-        ClientToScreen(h, ref p);
-        return p;
-    }
-
-    public static GdPoint CursorPos() { GdPoint p; GetCursorPos(out p); return p; }
-
-    // 当前"接收鼠标键盘的那个桌面"叫什么：解锁时是 Default，锁屏/切到登录界面时是 Winlogon。
-    // 为什么读它：这是"真实点击到底进不进得来"最直接的判据，而且不需要管理员。
-    // OpenInputDesktop 只要 DESKTOP_READOBJECTS(0x0002)，UOI_NAME 是 2。拿不到名字返回空串(调用方按"不知道"处理)。
-    public static string InputDesktopName()
-    {
-        IntPtr h = OpenInputDesktop(0x0002, false, 0x0002);
-        if (h == IntPtr.Zero) { return ""; }
-        try
-        {
-            System.Text.StringBuilder sb = new System.Text.StringBuilder(256);
-            uint need = 0;
-            if (!GetUserObjectInformationW(h, 2, sb, 512, out need)) { return ""; }
-            return sb.ToString();
-        }
-        finally { CloseDesktop(h); }
-    }
-
-    public static IntPtr ForegroundWindow() { return GetForegroundWindow(); }
-
-    public static uint WindowPid(IntPtr h) { uint pid; GetWindowThreadProcessId(h, out pid); return pid; }
-
-    public static bool TryForeground(IntPtr h)
-    {
-        // 后台进程抢前台会被系统拒绝；先"按下 ALT"再抢是公认那招。抢不到就返回 false，
-        // 调用方必须改走别的路 —— 真实点击是打在"鼠标当前所在的那个窗口"上的，抢不到前台还点，
-        // 就等于在用户正在用的窗口里瞎点一下。
-        keybd_event(0x12, 0, 0, IntPtr.Zero);                 // VK_MENU down
-        if (IsIconic(h)) { ShowWindow(h, 9); }                 // SW_RESTORE：只在最小化时恢复，别把最大化也撤了
-        bool ok = SetForegroundWindow(h);
-        keybd_event(0x12, 0, 2, IntPtr.Zero);                 // VK_MENU up(KEYEVENTF_KEYUP)
-        System.Threading.Thread.Sleep(350);                    // 等系统真的把焦点换过来
-        return ok && (GetForegroundWindow() == h);
-    }
-
-    public static bool RealClick(int screenX, int screenY)
-    {
-        // 真实鼠标：光标移过去再按下/抬起，我们自己的兜底点击走这条。
-        // 注意别再把它说成"MAA 在这个端游上也是这么点的"：2026-09-25 把整份 asst.log 按动作归类数过，
-        // inject_input_event 全部来自基建左滑(SwipeToTheLeft)，7600 多次点击一条注入都没有 —— MAA 的点击
-        // 一直是配置里的发消息方式，而那种点击在有人在机器前时是点得动这个端游的。
-        if (!SetCursorPos(screenX, screenY)) { return false; } // 目标点在屏幕外/被裁掉了 → 别点
-        System.Threading.Thread.Sleep(120);
-        mouse_event(0x0002, 0, 0, 0, IntPtr.Zero);             // MOUSEEVENTF_LEFTDOWN
-        System.Threading.Thread.Sleep(90);
-        mouse_event(0x0004, 0, 0, 0, IntPtr.Zero);             // MOUSEEVENTF_LEFTUP
-        return true;
-    }
-}
-'@ -ErrorAction Stop
+    if ((Add-GdInterop) -ne 'live') { throw 'interop 现编失败(GdWin 不可用)' }
     $global:GdRescueTypeDef = $true
 }
 

@@ -446,12 +446,19 @@ if (Get-Command Get-GdArkDesktopState -ErrorAction SilentlyContinue) {
     Check '探测顺手记下光标位置(判"这一轮鼠标进不进得来"的现场量)；不在正常桌面时改成说清为什么读不到' (
         $st.Detail -match '光标在 ' -or ($st.Desktop -ne 'Default' -and $st.Detail -match '不在正常桌面')) $st.Detail
     $fnGrab = (Get-Command Invoke-GdArkForegroundGrab).Definition
-    $typeDef = (Get-Command Add-GdRescueTypeDef).Definition
-    Check '桌面名走 OpenInputDesktop + UOI_NAME，用完关掉句柄' (
-        $typeDef -match 'OpenInputDesktop' -and $typeDef -match 'GetUserObjectInformationW' -and $typeDef -match 'CloseDesktop')
+    # B0(2026-09-29)：这二十来个 user32 签名不再内联在 lib\vision-ark.ps1 的 here-string 里，逐字搬进
+    # tools\gdinterop\GdWin.cs 由 Add-GdInterop 现编 —— 下面两条钉名单的断言随之改读那份 .cs 的文本。
+    # 第一条把"名单只在 GdWin.cs 里"钉成同一件事：vision-ark 若还留着 Add-Type -TypeDefinition，
+    # 两个宿主会当场抛"类型名称 GdWin 已存在"(2026-09-29 实测)，所以它同时是"迁移有没有做一半"的门。
+    $gdWinCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\tools\gdinterop\GdWin.cs') -Raw -Encoding utf8
+    $arkVisionTxt = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-ark.ps1') -Raw -Encoding utf8
+    Check '桌面名走 OpenInputDesktop + UOI_NAME，用完关掉句柄(名单只在 tools\gdinterop\GdWin.cs 里)' (
+        $gdWinCs -match 'OpenInputDesktop' -and $gdWinCs -match 'GetUserObjectInformationW' -and
+        $gdWinCs -match 'CloseDesktop' -and $arkVisionTxt -notmatch 'Add-Type -TypeDefinition') `
+        ("GdWin.cs={0} 字符 / vision-ark 仍内联 C#={1}" -f $gdWinCs.Length, ($arkVisionTxt -match 'TypeDefinition'))
     Check '探测还能说清"谁占着前台"，并且读窗口自身状态(最小化/可见/矩形)' (
-        $typeDef -match 'GetWindowThreadProcessId' -and $typeDef -match 'IsWindowVisible' -and
-        $typeDef -match 'WindowRectText')
+        $gdWinCs -match 'GetWindowThreadProcessId' -and $gdWinCs -match 'IsWindowVisible' -and
+        $gdWinCs -match 'WindowRectText')
     Check '抢前台只动窗口状态，绝不往客户区点一下，并把现场带回 Detail' (
         $fnGrab -match 'TryForeground' -and $fnGrab -notmatch 'RealClick' -and $fnGrab -notmatch 'ClickOnce' -and
         $fnGrab -match 'st\.Detail')
