@@ -620,9 +620,9 @@ if (Get-Command Resolve-ArkFarmPlan -ErrorAction SilentlyContinue) {
     Check 'farm 判表：空清单不炸参数绑定，理由说"没配 farmTargets"' (-not $r0.Active -and $r0.Reason -match 'farmTargets') $r0.Reason
     $dt = @{ '30135' = @{ 'CE-5' = @{ runs = 5; qty = 12 }; 'CE-4' = @{ runs = 3; qty = 3 } } }
     $rf = Resolve-ArkFarmPlan -Targets @($p1) -NameToId $N2I -IdToName $I2N -Inventory @{ '30135' = 18 } -DropTable $dt -KnownStages $known
-    # 目标30 现有18 差12；p1 显式填了 CE-5 → 只按 CE-5 的学习数据算：12/5=2.4 → ceil(12/2.4)=5 场
+    # 目标30 现有18 差12；p1 显式填了 CE-5 → 09-29 保守口径：次数=缺口(每场掉 1 保底、凑满目标为止)，学习均值只进括号报数(12/5=2.4)
     Check 'farm 判表：缺口=目标-现有，学习表挑关(最多2、平均掉得多的打头)' ($rf.Active -and [int]$rf.Gap -eq 12 -and @($rf.Stages).Count -le 2 -and $rf.Stages[0] -eq 'CE-5') ($rf.Stages -join ',')
-    Check 'farm 判表：次数按学习到的掉落率折算且 Reason 说清账目' ([int]$rf.Times -eq 5 -and $rf.Reason -match '还差 12' -and $rf.Reason -match '每场约 2\.4') $rf.Reason
+    Check 'farm 判表：次数按缺口保守折算且 Reason 说清账目' ([int]$rf.Times -eq 12 -and $rf.Reason -match '还差 12' -and $rf.Reason -match '每场约 2\.4') $rf.Reason
     $rc = Resolve-ArkFarmPlan -Targets @(Parse-GdArkFarmTargetSpec -Raw 'D32钢=99@CE-5') -NameToId $N2I -IdToName $I2N -Inventory @{} -DropTable $dt -KnownStages $known -MaxTimes 4
     Check 'farm 判表：单轮封顶生效并在 Reason 里说"明天接着刷"' ([int]$rc.Times -eq 4 -and $rc.Reason -match '单轮封顶 4') $rc.Reason
     $rg = Resolve-ArkFarmPlan -Targets @(Parse-GdArkFarmTargetSpec -Raw 'D32钢=10@CE-5') -NameToId $N2I -IdToName $I2N -Inventory @{ '30135' = 12 } -DropTable $dt
