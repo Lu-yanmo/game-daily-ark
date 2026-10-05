@@ -244,5 +244,12 @@ function Start-GdArkDaily {
         $bn = Update-GdArkFarmLedger -S $S
         if ($bn) { Write-GdLog "掉落记账：$bn" }
     } catch { Write-GdLog "掉落记账没做起来：$($_.Exception.Message)(不影响本轮)" -Level WARN }
+    # B 档观测(#21，2026-10-05)：把本轮 MAA 的关卡开放读数抄进观测账本，供人攒满一周后看账成案
+    # (planByWeekday 提案必须人工确认) —— 这段只读日志+写账，不改任何配置、不影响本轮结论。
+    try {
+        $obs = Get-GdMaaStageObservation -S $S
+        $on = Update-GdArkStageObs -S $S -Obs $obs
+        if ($on) { Write-GdLog "关卡开放观测已记账(账本现 $on 条)" -Level OK }
+    } catch { Write-GdLog "关卡开放观测没做起来：$($_.Exception.Message)(不影响本轮)" -Level WARN }
     return $r
 }

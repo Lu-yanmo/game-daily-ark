@@ -76,6 +76,44 @@ function Get-GdMaaFightSkip {
     }
 }
 
+function Get-GdMaaStageObservation {
+    <# 只读观测(B 档 #21，2026-10-05 新增)：从两份日志 tail 抄本轮的三对真值读数 ——
+       asst.log 的 append_task Fight stage 与 LastOrCurBattleBegin 重放、gui.log 的
+       GetFightStage from/selected(MAA 眼里今天开着的关名单)。判定本体在 C#
+       (observe-maa-stage-open，Orchestration.cs)，本壳只做现场读盘与形状整理，不加任何 if 判定。
+       它只给观测账本喂数(成案永远由人做)，不参与任何轮内决策。 #>
+    param([Parameter(Mandatory)]$S)
+    $P = Get-MaaPaths -S $S
+    $asstText = ''
+    if (Test-Path -LiteralPath $P.AsstLog) {
+        # 观测只押"最后一班"：asst.log 连日不轮转能涨到几十 MB(本机 bak 实测 67MB)，整份喂 CLI 不划算。
+        # 取尾部 16MB 窗口；若恰好日志已轮转变小，Get-GdFileTail 对越界 offset 会归零全读(小文件无伤)。
+        $al = [long](Get-Item -LiteralPath $P.AsstLog).Length
+        $ta = Get-GdFileTail -Path $P.AsstLog -Offset ([Math]::Max(0, $al - 16777216))
+        if ($ta.Text) { $asstText = [string]$ta.Text }
+    }
+    $guiText = ''
+    if (Test-Path -LiteralPath $P.GuiLog) {
+        $tg = Get-GdFileTail -Path $P.GuiLog -Offset 0
+        if ($tg.Text) { $guiText = [string]$tg.Text }
+    }
+    if (-not $asstText -and -not $guiText) { return $null }
+    $d = Invoke-GdCli -Verb 'observe-maa-stage-open' -Body ([pscustomobject]@{
+        asstText = $asstText
+        guiText  = $guiText
+        date     = (Get-Date).ToString('yyyy-MM-dd')
+    })
+    return [pscustomobject]@{
+        Found      = [bool]$d.Found
+        Date       = [string]$d.Date
+        Stage      = [string]$d.Stage
+        LastBattle = [bool]$d.LastBattle
+        SawGuiPlan = [bool]$d.SawGuiPlan
+        Survivors  = @($d.Survivors)
+        Selected   = [string]$d.Selected
+    }
+}
+
 function Get-MaaAsstStuckState {
     <#
       转发壳(parse-asst-state)：四个"当前状态"的抠法与 inject≠点击通道的实测教训都在 Processes.cs 注释里。

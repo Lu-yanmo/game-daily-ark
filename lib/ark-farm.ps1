@@ -52,6 +52,36 @@ function Test-GdArkFightSkipMarkToday {
     return (([string]$m.Date) -eq (Get-Date).ToString('yyyy-MM-dd'))
 }
 
+function Get-GdArkStageObsPath { Join-Path $global:GD.State 'ark-stage-weekday-obs.json' }
+
+function Update-GdArkStageObs {
+    <# B 档 #21 观测账本(2026-10-05 新增)：把每轮的关卡开放读数(Get-GdMaaStageObservation 的信封)追加进账。
+       它**只记读数、绝不改配置** —— 成案(往 planByWeekday 写建议)是攒满一周后由人在管家里一键确认的事。
+       口径：Found=false 的轮(这一路没递 Fight 任务)不记；06:00/18:00 两班各记一条，同日形状照样都留
+       (两班被剪的名单可能不同，那本身就是证据)；上限最近 60 条老的滑掉；读坏当空账不拦正常轮。 #>
+    param([Parameter(Mandatory)]$S, $Obs)
+    if (-not $Obs -or -not $Obs.Found) { return $null }
+    $p = Get-GdArkStageObsPath
+    $records = @()
+    if (Test-Path -LiteralPath $p) {
+        try { $records = @((Read-GdJson -Path $p).Records) } catch { $records = @() }
+    }
+    $dow = [int](Get-Date ([string]$Obs.Date)).DayOfWeek
+    if ($dow -eq 0) { $dow = 7 }   # 项目口径周一=1…周日=7(PlanByWeekday 提案与 Decisions 侧一致)
+    $records += [ordered]@{
+        Date       = [string]$Obs.Date
+        Dow        = $dow
+        Stage      = [string]$Obs.Stage
+        LastBattle = [bool]$Obs.LastBattle
+        SawGuiPlan = [bool]$Obs.SawGuiPlan
+        Survivors  = @($Obs.Survivors | ForEach-Object { [string]$_ })
+        Selected   = [string]$Obs.Selected
+    }
+    if ($records.Count -gt 60) { $records = @($records[($records.Count - 60)..($records.Count - 1)]) }
+    Write-GdJson -Path $p -Object ([ordered]@{ Records = $records })
+    return $records.Count
+}
+
 function Get-GdArkItemMaps {
     <# MAA 自带 resource/item_index.json → 材料名↔代号两张表(进程内缓存)。
        475 条覆盖常规材料，但装备模组那类新货币不在表里 —— 认不出来的材料由调用方明说，不猜。 #>
