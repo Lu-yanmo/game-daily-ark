@@ -21,6 +21,7 @@
     "问模型这一步由 tools\\vision\\ask.py 跑(Python 3，只用标准库，不需要 pip)：runtime.pythonExe 留空则按「本仓库自己下的那份(state\\python\\)→ PATH 上的 python/py」找，填了优先用填的那份。没有可用的 Python 时兜底会直接说明原因后放弃，日常一轮不受影响(正常路径一个请求都不发)。装法：pwsh -File setup.ps1 -WithPython。截图和点击仍然在 PowerShell 里，Python 只管发请求。",
     "runtime.visionAllowReward: 默认 false = 提示词里硬禁「领取」这类会推进游戏状态的按钮，兜底只准关弹窗。改成 true 才允许模型给「领取日常奖励/一键领取/邮箱领奖」那类点位(仍然禁「前往参与/开始行动/确定/充值」)。判错一次就是拿账号换一次不确定，所以只建议在面板「实验功能」里勾，别直接改这个文件。",
     "监督 agent(runtime.supervisor / supervisorIntervalSeconds / supervisorQuietMinutes / supervisorMaxInterventions)：真跑一轮时另起一个隐藏子进程全程旁观，每 supervisorIntervalSeconds 秒拍一次现场证据(助手日志新鲜度/进程存活/完成信号)，规则先判，连续两拍判到静止才拍一张画面问视觉模型复核(平时零 token)。它不点鼠标；唯一干预是重启 MAA 本体(它启动即自动开队列，风险只是多跑一遍)，一轮最多 supervisorMaxInterventions 次，其余异常只发通知。supervisorQuietMinutes 是「两本日志都安静多久算静止」，故意比主流程自己的停滞判据宽。读数在 state\\supervision.json，面板会转达；supervisor 显式写 false 才关掉。",
+    "内核换头开关(runtime.rustEnabled / rustOff)：Rust 内核内置件(gdcore.exe)跟着包出货、但默认不上路径 —— rustEnabled 默认 false，日常一轮照走原来的 PowerShell 实现；手工改成 true 才换到 Rust 内核。想临时拨回不必改文件：环境变量 GD_RUST_OFF=1 优先于配置。rustOff 是「按件名拦」的名单(字符串数组，本包件名 gdcore，含它即关)，单个件出问题时可以只关这一件。",
     "notify.webhook: 填了就把每轮结果 POST 到这个地址(自己承担密钥泄露风险，仓库不会收录 settings.json)。",
     "schedule.times: install-task.ps1 用它注册计划任务，两个时间点分别对应早/晚一轮清体力；机器常开、只需登录态在即可。",
     "schedule.taskPrefix 与 1999 那份仓库默认值不同(GameDailyArk / GameDaily1999)，两个仓库装在同一台机器上也不会互相盖掉计划任务。"
@@ -82,7 +83,9 @@
     "supervisor": true,
     "supervisorIntervalSeconds": 60,
     "supervisorQuietMinutes": 30,
-    "supervisorMaxInterventions": 1
+    "supervisorMaxInterventions": 1,
+    "rustEnabled": false,
+    "rustOff": []
   },
   "notify": {
     "toast": true,

@@ -180,6 +180,7 @@ function Invoke-GdArkRetryProbe {
         return @{ Status = $st; Detail = "假状态 $st"; Duration = 1 }
     }
     function Get-GdInputDesktopName { return 'Default' }   # 起跑前置判定不许押机器现场：本机挂着屏保时这里会返回 Screen-saver，探针会被提前退掉判成"拉端游 0 次"的假红
+    function Test-GdRustDailyPath { param($S) return $false }   # R3③ 换头：自检只走 legacy 路(开关拼法、内置件在场与否都是机器现场状态，不许把套件带红)
     Start-GdArkDaily -S $S -Decision ([pscustomobject]@{ Mode = 'idle'; Stage = 'CE-5,LS-5'; ClearSanity = $true; Reason = '假判定' }) | Out-Null
     return [pscustomobject]@{ Launches = $c.launches; MaaRuns = $c.maaRuns; Stops = $c.stops }
 }
@@ -198,6 +199,7 @@ function Invoke-GdDeskGateProbe([string]$FakeDesk) {
     function Stop-MaaAndGame { param($S) }
     function Invoke-MaaRun { param($S, $ExpectedChains) return @{ Status = 'ok'; Detail = '假ok'; Duration = 1 } }
     function Get-GdInputDesktopName { return $c.desk }
+    function Test-GdRustDailyPath { param($S) return $false }   # R3③ 换头：自检只走 legacy 路(开关拼法、内置件在场与否都是机器现场状态，不许把套件带红)
     $all = Start-GdArkDaily -S $S -Decision ([pscustomobject]@{ Mode = 'idle'; Stage = 'CE-5'; ClearSanity = $true; Reason = '假判定' })
     $r = @($all | Where-Object { $_ -is [System.Collections.IDictionary] }) | Select-Object -First 1
     return [pscustomobject]@{ Launches = $c.launches; Status = $r.Status; Detail = $r.Detail }

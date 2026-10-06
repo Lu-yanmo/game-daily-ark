@@ -28,6 +28,15 @@
 #  旧分流在原地逐行 # 前缀冻结(test-ark:163 钉 `Status -notin @(…)` 字面锚，别"顺手搬走")。
 #  改分流规则/话术请改 Orchestration.cs 并复拍 tools\probe-live-golden.ps1，不要在这里加 if。
 # ──────────────────────────────────────────────────────────────────────────────
+#
+# ── R3③ 换头(2026-10-06)─────────────────────────────────────────────────────────
+# Start-GdArkDaily 从"整函数"变成**调度器**(文件尾)：开关(Test-GdRustDailyPath，住 common.ps1，
+#  三把判据见 docs\r0-adrs.md §5.4)拨开 → Invoke-GdArkDailyRust 起内置件 gdcore.exe 走换头重入
+#  协议(驱动档 --drive-ark-daily：问-答-重放；动作集=main.rs 的 ark_daily_chain)；拨关(默认) →
+#  原身逐字保留为 Invoke-GdArkDailyLegacy，行为一字不变。接线点只此一处(ADR §5.4"多处接线=
+#  实际不可回滚")；两分支返回值同形(hashtable @{Status;Detail;Duration?})，调用方无感。
+#  改协议先改 main.rs 再复拍三门(arkskip/live/events)，不要在这里加规则。
+# ──────────────────────────────────────────────────────────────────────────────
 
 function Set-GdArkAck {
     <# -AckArk：确认"这个活动的图我自己手动打过了" → 之后日常才允许自动刷活动关卡 #>
@@ -103,7 +112,9 @@ function Show-GdArkPreview {
     Write-GdLog ("  端游窗口：" + $(if ($win) { "已存在 [$($win.Name)#$($win.Id)] $($win.Title)" } else { "没有 → 会先启动 $($S.paths.arknightsExe) 再让 MAA 连" }))
 }
 
-function Start-GdArkDaily {
+# R3③ 换头(2026-10-06)：原身只改了函数名(Start-GdArkDaily → Invoke-GdArkDailyLegacy)，函数体一字未动；
+# 新入口 Start-GdArkDaily 是文件尾的调度器(开关拨开走 Rust 驱动档，拨关走这里)。
+function Invoke-GdArkDailyLegacy {
     <# 真正跑一轮方舟：接管关闭 → 写配置 → 拉端游 → 跑 MAA → 该重试就重试 → 收尾。返回 @{Status;Detail;Duration} #>
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Decision)
     Write-GdLog '--- 方舟(端游 + MAA)---' -Level STEP
@@ -252,4 +263,180 @@ function Start-GdArkDaily {
         if ($on) { Write-GdLog "关卡开放观测已记账(账本现 $on 条)" -Level OK }
     } catch { Write-GdLog "关卡开放观测没做起来：$($_.Exception.Message)(不影响本轮)" -Level WARN }
     return $r
+}
+
+# ===== R3③ 换头(2026-10-06)：调度器 + Rust 驱动档 executor =====
+# Start-GdArkDaily 从"整函数"变成**调度器**：开关(Test-GdRustDailyPath，住 common.ps1，
+# 三把判据见 docs\r0-adrs.md §5.4)拨开 → Invoke-GdArkDailyRust 起内置件 gdcore.exe 走换头
+# 重入协议(驱动档 --drive-ark-daily：问-答-重放)；拨关(默认) → 原身逐字保留为
+# Invoke-GdArkDailyLegacy，行为一字不变。接线点只此一处(ADR §5.4)：改协议先改 main.rs
+# 再复拍三门，不要在这里加规则。
+function Start-GdArkDaily {
+    <# 调度器：两分支返回值同形(hashtable @{Status;Detail;Duration?})，调用方无感 #>
+    param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Decision)
+    if (Test-GdRustDailyPath -S $S) { return Invoke-GdArkDailyRust -S $S -Decision $Decision }
+    return Invoke-GdArkDailyLegacy -S $S -Decision $Decision
+}
+
+function Get-GdArkDriveExe {
+    <# 内置件 gdcore.exe 的候选序：出货树形态(tools\rustcore\gdcore.exe，重打 exe 后随包走) →
+       cargo 形态(tools\rustcore\target\release\gdcore.exe，开发树直跑)。两者都不在返回 ''，
+       由调用方按"没有就当场报错"处理 —— 这条只在开关拨开时才被点到，默认档永不触。 #>
+    $cands = @(
+        (Join-Path $global:GD.Root 'tools\rustcore\gdcore.exe'),
+        (Join-Path $global:GD.Root 'tools\rustcore\target\release\gdcore.exe')
+    )
+    foreach ($c in $cands) { if (Test-Path -LiteralPath $c) { return $c } }
+    return ''
+}
+
+function Invoke-GdArkDailyRust {
+    <# R3③ 换头执行器：把原身的同步逻辑换成一串"问-答-重放"——
+       每一轮起一个 gdcore.exe：它从 journal 重放已办事项回到断点，把下一个要办的动作写成
+       ask 信封(seq/action/params)退出；这里照单执行完，把结果写 res 回执，再起下一轮。
+       动作集与旧链逐条对齐(main.rs 的 ark_daily_chain 是事实源；改它=改协议，复拍三门)。
+       本函数**不打任何 Write-GdLog**：链上日志全部由 gdcore 侧收集、这里按原级别回放 ——
+       两门对拍靠的正是"回放串与旧侧逐字一致"，这里多打一行就红。 #>
+    param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Decision)
+
+    $exe = Get-GdArkDriveExe
+    if (-not $exe) { throw 'R3③ 换头拨开了但找不到内置件 gdcore.exe —— 先跑 tools\rustcore\build.ps1(或重打 exe)再试' }
+    $panel = Get-GdCliExe
+
+    # 一次日常 = 一本账：ctx 换了 journal 就不能复用(内核按 init 与 ctx 全等校验)，所以每次开头清场重起。
+    $journal = Join-Path $global:GD.State 'rust-ark-daily-journal.ndjson'
+    $ctxFile = Join-Path $global:GD.State 'rust-ark-daily-ctx.json'
+    $resFile = Join-Path $global:GD.State 'rust-ark-daily-res.json'
+    foreach ($f in @($journal, $resFile)) { if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force } }
+    Write-GdJson -Path $ctxFile -Object ([pscustomobject]@{
+        launch     = [bool]($S.runtime.launchArkFromHelper -ne $false)
+        retry_once = [bool]$S.runtime.retryOnce
+        decision   = $Decision
+    })
+
+    $round = 0
+    while ($true) {
+        $round += 1
+        if ($round -gt 500) { throw "R3③ 换头驱动轮次超上限(疑似死循环)：journal=$journal" }
+        # 信封落点每轮换新文件，防读到上一轮读数；写不下去时 gdcore 退 stdout 末行(内核侧既定纪律)
+        $envFile = Join-Path ([System.IO.Path]::GetTempPath()) ("gd-ark-daily-env-" + [guid]::NewGuid().ToString('N') + ".json")
+        try {
+            $cap = Invoke-GdNativeCapture -Exe $exe -Arguments @(
+                '--drive-ark-daily', '--i-drive', '--journal', $journal, '--ctx', $ctxFile,
+                '--res', $resFile, '--panel-cs', $panel, '--out', $envFile
+            )
+            $envText = ''
+            if (Test-Path -LiteralPath $envFile) { $envText = [System.IO.File]::ReadAllText($envFile) }
+            else {
+                foreach ($ln in @($cap.Lines)) { $t = ([string]$ln).TrimStart(); if ($t.StartsWith('{')) { $envText = $t } }
+            }
+            if (-not $envText) {
+                throw "R3③ 换头：gdcore 没给出信封(rc=$($cap.ExitCode))；输出末三行：$((@($cap.Lines) | Select-Object -Last 3) -join ' / ')"
+            }
+            $envelope = $envText | ConvertFrom-Json
+            if ([string]$envelope.role -ne 'R3-drive-ark-daily') {
+                throw "R3③ 换头：信封 role 不对($($envelope.role)) —— 这枚 gdcore.exe 不是驱动档那件？"
+            }
+            $want = Get-GdRustContract
+            if ([string]$envelope.contract -ne $want) {
+                throw "R3③ 换头：gdcore 契约号($($envelope.contract))与壳侧期望($want)不一致 —— 先重跑 tools\rustcore\build.ps1 再拨开关"
+            }
+            # 链体日志按原级别回放(空/INFO 走默认档，与旧侧 decide 回放同形)。回放必须在动作执行之前：
+            # 信封 N 的 logs = 上一动作执行完、链体跑到断点前的新区 —— 与旧侧 Write-GdLog 时序逐字对齐。
+            foreach ($l in @($envelope.logs)) {
+                $lvl = [string]$l.level
+                $txt = [string]$l.text
+                if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog $txt -Level $lvl } else { Write-GdLog $txt }
+            }
+            $kind = [string]$envelope.kind
+            if ($kind -eq 'done') {
+                $dr = $envelope.result
+                $out = @{ Status = [string]$dr.status; Detail = [string]$dr.detail }
+                if ($null -ne $dr.duration) { $out.Duration = $dr.duration }
+                return $out
+            }
+            if ($kind -eq 'fail') { throw ([string]$envelope.error) }
+            if ($kind -ne 'ask') { throw "R3③ 换头：信封 kind 不认识($kind) —— 协议两侧不同源？" }
+
+            $seq = [int]$envelope.seq
+            $act = [string]$envelope.action
+            $prm = $envelope.params
+            if ($act -notin @('desk', 'svdetail', 'takeover', 'cfg', 'entryverb', 'launch', 'run', 'stop', 'sleep', 'skip', 'mark', 'ledger', 'obs', 'obsrec', 'admin')) {
+                # 白名单之外直接抛(绕开下面的动作 catch)：不认识的动作 = 协议不同源，不许被当成"动作失败"混过去
+                throw "R3③ 换头：收到不认识的动作 '$act'(seq=$seq) —— 先改 main.rs 再改这里，不许放行"
+            }
+            $ok = $true
+            $data = $null
+            $err = $null
+            try {
+                switch ($act) {
+                    'desk' { $data = [string](Get-GdInputDesktopName) }
+                    'svdetail' {
+                        # 旧侧为把"屏保当时装着什么"写进早退原因的那整段(try/catch 内部吞异常、恒返 string)
+                        $svTxt = ''
+                        try {
+                            if (Get-Command Get-GdScreensaverVerdict -ErrorAction SilentlyContinue) {
+                                $svv = Get-GdScreensaverVerdict -Cfg (Get-GdScreensaverConfig)
+                                if ($svv) { $svTxt = [string]$svv.Detail }
+                            }
+                        } catch { $svTxt = '' }
+                        $data = $svTxt
+                    }
+                    'takeover' {
+                        $arkName = [System.IO.Path]::GetFileNameWithoutExtension($S.paths.arknightsExe)
+                        Invoke-GdTakeover -S $S -Names @((Get-MaaPaths -S $S).Name, $arkName) -Label '方舟/MAA'
+                        $data = $true
+                    }
+                    'cfg' {
+                        if ([string]$prm.kind -eq 'lean') {
+                            $lean = @{
+                                Source = 'auto'; Mode = [string]$Decision.Mode; Stage = [string]$prm.stage
+                                ClearSanity = [bool]$Decision.ClearSanity
+                                EventKey = $Decision.EventKey; EventTip = $Decision.EventTip; StageHint = $Decision.StageHint
+                            }
+                            $c = Set-MaaDailyConfig -S $S -Decision $lean -Apply
+                        } else {
+                            $c = Set-MaaDailyConfig -S $S -Decision $Decision -Apply
+                        }
+                        $data = [pscustomobject]@{ changes = @($c.Changes); chains = @($c.ExpectedChains) }
+                    }
+                    'entryverb' { $data = [string](Get-GdEntryVerb -Game ([string]$prm.game) -Verb ([string]$prm.verb)) }
+                    'launch' { $data = [bool](Start-GdArkClient -S $S) }
+                    'run' {
+                        $rr = Invoke-MaaRun -S $S -ExpectedChains @($prm)
+                        $rd = [pscustomobject]@{ status = [string]$rr.Status; detail = [string]$rr.Detail }
+                        if ($null -ne $rr.Duration) { $rd | Add-Member -NotePropertyName duration -NotePropertyValue $rr.Duration }
+                        $data = $rd
+                    }
+                    'stop' { Stop-MaaAndGame -S $S; $data = $true }
+                    'sleep' { Start-Sleep -Seconds ([int]$prm); $data = $true }
+                    'skip' {
+                        $sv = Get-GdMaaFightSkip -S $S
+                        if ($null -eq $sv) { $data = $null }
+                        else {
+                            # @() 包住是忠实编码：$null 成员照旧占位(与旧侧 @($null).Count=1 行为一致)
+                            $data = [pscustomobject]@{ skipped = [bool]$sv.Skipped; plan = @($sv.Plan); evidence = @($sv.Evidence) }
+                        }
+                    }
+                    'mark' {
+                        $mk = Set-GdArkFightSkipMark -S $S -Stages @($prm.stages) -Reason ([string]$prm.reason)
+                        $data = [string]$mk.Date
+                    }
+                    'ledger' { $data = [string](Update-GdArkFarmLedger -S $S) }
+                    'obs' { $data = Get-GdMaaStageObservation -S $S }
+                    'obsrec' { $data = Update-GdArkStageObs -S $S -Obs $prm }
+                    'admin' { $data = [bool](Test-GdAdmin) }
+                }
+            } catch {
+                $ok = $false
+                $err = $_.Exception.Message
+            }
+            # 回执形状是协议：ok 真不许带 err 键、假不许带 data 键(main.rs drive_merge_res 逐字校验)
+            $rf = [ordered]@{ seq = $seq; action = $act; ok = $ok }
+            if ($ok) { $rf.data = $data } else { $rf.err = $err }
+            Write-GdJson -Path $resFile -Object $rf
+        } finally {
+            if (Test-Path -LiteralPath $envFile) { Remove-Item -LiteralPath $envFile -Force }
+        }
+    }
 }
