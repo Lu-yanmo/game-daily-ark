@@ -305,12 +305,12 @@ pwsh -File install-task.ps1 -Uninstall
   `status.ps1` 环境段的「版本」行、面板标题栏与启动日志、诊断页那个 zip 里的 `版本.txt`、打包好的 exe 的 `--version`
   （只印一行「仓库名 + 版本号」，不动任何程序、不弹界面）。形状不对或文件不在就统一退成 `0.0.0` —— 那是"读不出来"，不是"版本 0"。
   反馈问题时把这一行带上，比截图整屏快。
-- `pwsh -File tools\test-ark.ps1` —— 纯逻辑自检（只读：不改配置、不启动任何程序、不发网络请求），213 条断言，`powershell.exe -File` 同样能跑。
+- `pwsh -File tools\test-ark.ps1` —— 纯逻辑自检（只读：不改配置、不启动任何程序、不发网络请求），213 条断言。
   改过 settings 或判定代码后跑一遍最放心。
 - `pwsh -File tools\test-modules.ps1` —— 框架层自检（这一路的游戏模块清单齐不齐、入口开关名对不对、判定/预览钩子调不调得动，
   外加一条"源码/文案里不许出现只在这台机器成立"的扫描：安装路径、MuMu 虚拟机名、M9A 实例 id、视觉 Key、webhook、`%USERPROFILE%`，
   值全部运行时从本机 `config\settings.json` 里取，所以这条不会自己命中自己；红了只报"哪个文件 <- 哪一项"，值不进日志），
-  只读，`powershell.exe -File` 同样能跑。这份仓库里只有方舟一路，所以是 190 条；它和上面那 213 条是两套东西，缺哪个都不算过。
+  只读。这份仓库里只有方舟一路，所以是 190 条；它和上面那 213 条是两套东西，缺哪个都不算过。
   里面有几条是"钉打包那一侧"的（exe 外壳 `--version`、`build-exe` 盖文件属性、导出归属表），那三个文件本来就不在这棵树里，
   它们会明说"跳过：……不进导出仓库"而不是跟着计数装绿 —— 看到 PASS 后面带"跳过"是设计，不是漏测。
 - `pwsh -File tools\unarm-screensaver.ps1` —— 屏保体检与断根（**不加参数=只读**，把现值、要动哪几项、动完的复检打出来，一个字节都不写；
@@ -368,9 +368,9 @@ pwsh -File install-task.ps1 -Uninstall
   logs\ state\ backups\  运行时生成（不入仓）
 ```
 
-依赖：PowerShell 7（`pwsh`）最省事，但**没装也行**——本仓库的脚本 Windows PowerShell 5.1（系统自带）和 7 都能跑，
-`run-daily.cmd` 会自己挑一个能用的引擎；下文示例里的 `pwsh` 换成 `powershell` 是同一条命令。
-不放心可以跑 `tools\check-ps51.ps1` 自检（在 5.1 里跑出来的结论才算数）。不需要 adb。
+依赖：PowerShell 7（`pwsh`）——本仓库只支持 7。`run-daily.cmd` 会自己找 pwsh（PATH 或装机版），一个都找不到会提示装法：
+`winget install Microsoft.PowerShell`（或到官网下载装上）。下文命令一律用 `pwsh`。
+编码与行尾守卫：`pwsh -File tools\check-ps51.ps1`。不需要 adb。
 
 ## 8. 许可、免责与隐私
 

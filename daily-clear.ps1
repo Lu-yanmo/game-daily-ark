@@ -20,7 +20,7 @@
   在 lib\modules.ps1 的 Invoke-GdDailyRound 里 —— 和另一款游戏的仓库、以及本地那份管两款的入口，
   跑的是同一套实现。这个仓库里只装了 ark-module.ps1，所以注册表天然只有一款，不用 -Games 参数。
 #>
-# 双引擎兼容：Windows PowerShell 5.1(系统自带) 与 PowerShell 7 都要能跑，别再加 #Requires 版本门把访客挡在门外。
+# 运行环境：PowerShell 7(pwsh)。本仓库只支持 7，不再为系统自带的 Windows PowerShell 5.1 留兼容退路。
 [CmdletBinding()]
 param(
     [ValidateSet('auto', 'manual')][string]$Tag = 'manual',
