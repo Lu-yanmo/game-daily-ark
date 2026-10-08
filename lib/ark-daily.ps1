@@ -295,6 +295,8 @@ function Invoke-GdArkDailyRust {
        每一轮起一个 gdcore.exe：它从 journal 重放已办事项回到断点，把下一个要办的动作写成
        ask 信封(seq/action/params)退出；这里照单执行完，把结果写 res 回执，再起下一轮。
        动作集与旧链逐条对齐(main.rs 的 ark_daily_chain 是事实源；改它=改协议，复拍三门)。
+       --state 指到生产同一处 state 目录(B-1a：mark/obsrec/admin 已搬核内进程内真做，
+       写的账落在这里；switch 里那三 case 保留只作白名单完备与回退面，新核不再 ask 它们)。
        本函数**不打任何 Write-GdLog**：链上日志全部由 gdcore 侧收集、这里按原级别回放 ——
        两门对拍靠的正是"回放串与旧侧逐字一致"，这里多打一行就红。 #>
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Decision)
@@ -323,7 +325,7 @@ function Invoke-GdArkDailyRust {
         try {
             $cap = Invoke-GdNativeCapture -Exe $exe -Arguments @(
                 '--drive-ark-daily', '--i-drive', '--journal', $journal, '--ctx', $ctxFile,
-                '--res', $resFile, '--panel-cs', $panel, '--out', $envFile
+                '--res', $resFile, '--panel-cs', $panel, '--state', $global:GD.State, '--out', $envFile
             )
             $envText = ''
             if (Test-Path -LiteralPath $envFile) { $envText = [System.IO.File]::ReadAllText($envFile) }
