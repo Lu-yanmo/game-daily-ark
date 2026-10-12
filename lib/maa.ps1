@@ -619,6 +619,86 @@ function Invoke-MaaRun {
     # return @{ Status = 'ok'; Detail = "完成链路：$(($completed.Keys | Sort-Object) -join ', ')"; Duration = $dur; Errors = $errors }
 }
 
+function Wait-GdArkLauncherReady {
+    <#
+      10-11 新增：把"端游停在启动器的更新页上"这一格变成自动处理。
+      由来：2026-10-11 06:00 那班，端游到版本日就停在更新页等有人点『更新』，而旧判定只等"窗口标题出现"——
+      更新页的标题和主界面**都是"明日方舟"**(那班日志里的"端游窗口就绪 [Arknights#31564]"拍到的就是启动器页)，
+      于是照样放行、MAA 对着一个还没进游戏的页面把五个任务全跑错(14m23s)。标题分不开，只有画面分得开。
+
+      分工照内核化的老规矩：判据(五档相位、话术、点击预算、千分比→客户区的换算、越界拒绝)全在 C# 的
+      check-ark-launcher(Live.cs)；这里只做"活"——循环、睡眠、真点击、落日志。
+      语义是**止损，不是新闸门**：任何一档判不出(uncertain)、内核问不动、开关关掉、dry-run 都返回 $true 放行，
+      这一枚坏了不许把日常链拦死；只有"到上限还没进游戏"和"窗口没了"才回 $false(调用方照旧按"仍继续"走)。
+      花费口径：每一轮最多问模型 arkLauncherMaxChecks 次(默认 6 次)，下载等待上限 arkUpdateWaitSeconds 秒(默认 2400)。
+    #>
+    param([Parameter(Mandatory)]$S, [switch]$DryRun)
+
+    # 开关语义与 arkVisionRescue 同一条：没写就是开着，只有明写成 $false 才关(关了 = 回到 10-11 之前的旧行为)。
+    if ($S.runtime.arkAutoUpdateClick -eq $false) { return $true }
+    if ($DryRun) { Write-GdLog '[dry-run] 跳过启动器更新页检查' -Level STEP; return $true }
+
+    $waitSec = [int]$S.runtime.arkUpdateWaitSeconds
+    if ($waitSec -le 0) { $waitSec = 2400 }
+    $maxClicks = [int]$S.runtime.arkLauncherMaxChecks
+    if ($maxClicks -le 0) { $maxClicks = 6 }      # C# 侧同一档兜底，两边都不许让配置一坏就变成"一次都不点"
+    $deadline = (Get-Date).AddSeconds($waitSec)
+    $clicks = 0
+    $checks = 0
+
+    while ((Get-Date) -lt $deadline) {
+        $d = $null
+        try {
+            $d = Invoke-GdCli -Verb 'check-ark-launcher' -Body ([pscustomobject]@{
+                clicksAlready = [int]$clicks
+                maxClicks     = [int]$maxClicks
+            })
+        } catch {
+            Write-GdLog "启动器检查：这一枚问不动($($_.Exception.Message))，分不清是不是更新页，按原样放行" -Level WARN
+            return $true
+        }
+        $checks++
+        $lvl = [string]$d.Level
+        if ($d.LogLine) {
+            if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog ([string]$d.LogLine) -Level $lvl } else { Write-GdLog ([string]$d.LogLine) }
+        }
+        switch ([string]$d.Phase) {
+            'clear'       { return $true }
+            'no-window'   { return $false }       # 窗口都没了，检查没有对象(等下去也不会自己长回来)
+            'uncertain'   { return $true }        # 判不出 = 交回原路，不拦
+            'needs-click' {
+                $c = $null
+                try {
+                    $c = Invoke-GdCli -Verb 'ark-window-click' -Body ([pscustomobject]@{
+                        handle  = [long]$d.Handle
+                        clientX = [int]$d.ClientX
+                        clientY = [int]$d.ClientY
+                        name    = '启动器窗口'
+                        what    = [string]$d.What
+                        why     = [string]$d.Why
+                    })
+                } catch {
+                    Write-GdLog "启动器检查：点击没发出去($($_.Exception.Message))，按原样放行" -Level WARN
+                    return $true
+                }
+                $clicks++
+                # 不用 ark-window-click 那句 "视觉兜底：…" 的日志：那一串说的是关弹窗，这里说的是点『更新』。
+                if ([bool]$c.Sent) { Write-GdLog "启动器检查：已点下去($([string]$c.Mode))，等它开始拉资源" -Level STEP }
+                else { Write-GdLog "启动器检查：这一下没点实($([string]$c.Mode))，再看看" -Level WARN }
+                Start-Sleep -Seconds 30
+                continue
+            }
+            'waiting'     { Start-Sleep -Seconds 60; continue }
+            default       {
+                Write-GdLog "启动器检查：认不出这一档相位([$([string]$d.Phase)])，按原样放行" -Level WARN
+                return $true
+            }
+        }
+    }
+    Write-GdLog "启动器检查：等了 $waitSec 秒(问模型 $checks 次、点过 $clicks 次)还没进游戏，这一轮到此为止" -Level WARN
+    return $false
+}
+
 function Start-GdArkClient {
     <#
       MAA 的配置里并没有存端游路径(实测 StartGame=true 也只会报"未找到窗口")，
@@ -649,7 +729,8 @@ function Start-GdArkClient {
         $win = Get-GdWindowByTitle -Pattern $pattern -ProcessName $name
         Write-GdLog "端游窗口就绪：[$($win.Name)#$($win.Id)] $($win.Title)" -Level OK
         Start-Sleep -Seconds ([int]$S.runtime.arkWarmupSeconds)   # 让它自己登录/进主界面
-        return $true
+        # 10-11：标题就绪不等于进到了游戏(更新页同名)。这一句是新增的一层"按画面确认"，判不出会照旧放行。
+        return [bool](Wait-GdArkLauncherReady -S $S -DryRun:$DryRun)
     }
     Write-GdLog "等了 $([int]$S.runtime.arkWindowTimeoutSeconds) 秒还没看到端游窗口(要登录/在更新/路径不对?)" -Level WARN
     return $false

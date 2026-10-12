@@ -297,8 +297,15 @@ function Invoke-GdArkDailyRust {
        动作集与旧链逐条对齐(main.rs 的 ark_daily_chain 是事实源；改它=改协议，复拍三门)。
        --state 指到生产同一处 state 目录(B-1a：mark/obsrec/admin 已搬核内进程内真做，
        写的账落在这里；switch 里那三 case 保留只作白名单完备与回退面，新核不再 ask 它们)。
-       本函数**不打任何 Write-GdLog**：链上日志全部由 gdcore 侧收集、这里按原级别回放 ——
-       两门对拍靠的正是"回放串与旧侧逐字一致"，这里多打一行就红。 #>
+       本函数**不自己造日志**：链上日志全部由 gdcore 侧产生，这里只照原级别回放 ——
+       两门对拍靠的正是"回放串与旧侧逐字一致"，这里多打一行就红。
+       B-2c② 换了通道：日志不再攒在信封里等收尾(信封 logs 键留而不删、恒为空)，而是按产生顺序
+       逐行落进 --log-sink 指的侧信道文件，这里边跑边按字节偏移增量排空再回放。时序没变(动作仍在
+       子进程退出、日志落完之后才执行)，变的只是落点，所以 probe-arkdrive 的 C-logs 面判据一字不改。
+       B-2c③ 起 run 也不再 ask：Invoke-MaaRun 那整段循环在核内真做(RealHost 走 --maa-run 同一套骨架)，
+       现场 13 枚参数随 ctx 的 maaRun 交进去(paths 六格＋runtime 六格＋benignMaaErrors，键名与
+       config\settings.json 逐字同名)。**取键逐枚点名是硬约束**——$S.runtime 整块里住着视觉兜底的 API key，
+       序列化进来等于把 key 递进核、递进 ctx/journal 两本会留盘的账。 #>
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Decision)
 
     $exe = Get-GdArkDriveExe
@@ -309,11 +316,41 @@ function Invoke-GdArkDailyRust {
     $journal = Join-Path $global:GD.State 'rust-ark-daily-journal.ndjson'
     $ctxFile = Join-Path $global:GD.State 'rust-ark-daily-ctx.json'
     $resFile = Join-Path $global:GD.State 'rust-ark-daily-res.json'
-    foreach ($f in @($journal, $resFile)) { if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force } }
+    $sink = Join-Path $global:GD.State 'rust-ark-daily-log-sink.ndjson'
+    foreach ($f in @($journal, $resFile, $sink)) { if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force } }
+    # 侧信道一本会话一个文件(跨轮累加、核侧只追加不截断)：偏移在这里归零，之后由 Read-GdSinkIncrement 按**字节**推进。
+    # 一律用 long：[ref] 会记住初值的类型，这里留 int 以后写 long 会被往回截(偏移算错=同一句日志重放)。
+    $sinkOffset = [long]0
+    # B-2c③：run 换核内真做之后，现场那 13 枚参数得随 ctx 交进去（键名与 config\settings.json 逐字同名）。
+    # **逐枚点名取键是硬约束**：$S.runtime 整块里住着视觉兜底的 API key，序列化进来就等于把 key 递进核、
+    # 递进 journal/ctx 那两本会留盘的账。要什么取什么，多一枚都不许。
+    # benignMaaErrors 用 List[string] 累加而不是 @($S.runtime.benignMaaErrors)：那枚键没填时
+    # @($null) 会占成一条空串错误项(真身 maa.ps1:300 同一处坑)；foreach 扫 $null 才是零次。
+    $benignMaa = New-Object System.Collections.Generic.List[string]
+    foreach ($bm in $S.runtime.benignMaaErrors) { $benignMaa.Add([string]$bm) }
     Write-GdJson -Path $ctxFile -Object ([pscustomobject]@{
         launch     = [bool]($S.runtime.launchArkFromHelper -ne $false)
         retry_once = [bool]$S.runtime.retryOnce
         decision   = $Decision
+        maaRun     = [pscustomobject]@{
+            paths = [pscustomobject]@{
+                maaDir       = [string]$S.paths.maaDir
+                maaExe       = [string]$S.paths.maaExe
+                maaConfig    = [string]$S.paths.maaConfig
+                maaGuiLog    = [string]$S.paths.maaGuiLog
+                maaAsstLog   = [string]$S.paths.maaAsstLog
+                arknightsExe = [string]$S.paths.arknightsExe
+            }
+            runtime = [pscustomobject]@{
+                arkStartTimeoutMinutes = [int]$S.runtime.arkStartTimeoutMinutes
+                arkTimeoutMinutes      = [int]$S.runtime.arkTimeoutMinutes
+                stallTimeoutMinutes    = [int]$S.runtime.stallTimeoutMinutes
+                idleConfirmSeconds     = [int]$S.runtime.idleConfirmSeconds
+                abortOnMaaStallWarning = [bool]$S.runtime.abortOnMaaStallWarning
+                visionMaxRescue        = [int]$S.runtime.visionMaxRescue
+                benignMaaErrors        = $benignMaa
+            }
+        }
     })
 
     $round = 0
@@ -323,10 +360,17 @@ function Invoke-GdArkDailyRust {
         # 信封落点每轮换新文件，防读到上一轮读数；写不下去时 gdcore 退 stdout 末行(内核侧既定纪律)
         $envFile = Join-Path ([System.IO.Path]::GetTempPath()) ("gd-ark-daily-env-" + [guid]::NewGuid().ToString('N') + ".json")
         try {
-            $cap = Invoke-GdNativeCapture -Exe $exe -Arguments @(
+            # 边跑边排空侧信道：06:00 那一轮要跑二十多分钟，卡住时一行不印就等于没留证(旧侧是收尾一次性倒)。
+            $cap = Start-GdNativeStreamed -Exe $exe -SinkPath $sink -SinkOffset ([ref]$sinkOffset) -Arguments @(
                 '--drive-ark-daily', '--i-drive', '--journal', $journal, '--ctx', $ctxFile,
-                '--res', $resFile, '--panel-cs', $panel, '--state', $global:GD.State, '--out', $envFile
-            )
+                '--res', $resFile, '--panel-cs', $panel, '--state', $global:GD.State,
+                '--log-sink', $sink, '--out', $envFile
+            ) -OnSinkRow {
+                param($r)
+                $lvl = [string]$r.Level
+                $txt = [string]$r.Text
+                if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog $txt -Level $lvl } else { Write-GdLog $txt }
+            }
             $envText = ''
             if (Test-Path -LiteralPath $envFile) { $envText = [System.IO.File]::ReadAllText($envFile) }
             else {
@@ -343,13 +387,8 @@ function Invoke-GdArkDailyRust {
             if ([string]$envelope.contract -ne $want) {
                 throw "R3③ 换头：gdcore 契约号($($envelope.contract))与壳侧期望($want)不一致 —— 先重跑 tools\rustcore\build.ps1 再拨开关"
             }
-            # 链体日志按原级别回放(空/INFO 走默认档，与旧侧 decide 回放同形)。回放必须在动作执行之前：
-            # 信封 N 的 logs = 上一动作执行完、链体跑到断点前的新区 —— 与旧侧 Write-GdLog 时序逐字对齐。
-            foreach ($l in @($envelope.logs)) {
-                $lvl = [string]$l.level
-                $txt = [string]$l.text
-                if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog $txt -Level $lvl } else { Write-GdLog $txt }
-            }
+            # 链体日志已在上面边跑边从侧信道按原级别回放完毕(空/INFO 走默认档，与旧侧 decide 回放同形)。
+            # 信封的 logs 键 B-2c② 起留键不删键、恒为空数组，这里不再读它 —— 再读一遍等于同一句日志打两遍。
             $kind = [string]$envelope.kind
             if ($kind -eq 'done') {
                 $dr = $envelope.result
@@ -363,7 +402,7 @@ function Invoke-GdArkDailyRust {
             $seq = [int]$envelope.seq
             $act = [string]$envelope.action
             $prm = $envelope.params
-            if ($act -notin @('desk', 'svdetail', 'takeover', 'cfg', 'entryverb', 'launch', 'run', 'stop', 'sleep', 'skip', 'mark', 'ledger', 'obs', 'obsrec', 'admin')) {
+            if ($act -notin @('desk', 'svdetail', 'takeover', 'cfg', 'entryverb', 'launch', 'stop', 'sleep', 'skip', 'mark', 'ledger', 'obs', 'obsrec', 'admin')) {
                 # 白名单之外直接抛(绕开下面的动作 catch)：不认识的动作 = 协议不同源，不许被当成"动作失败"混过去
                 throw "R3③ 换头：收到不认识的动作 '$act'(seq=$seq) —— 先改 main.rs 再改这里，不许放行"
             }
@@ -404,12 +443,9 @@ function Invoke-GdArkDailyRust {
                     }
                     'entryverb' { $data = [string](Get-GdEntryVerb -Game ([string]$prm.game) -Verb ([string]$prm.verb)) }
                     'launch' { $data = [bool](Start-GdArkClient -S $S) }
-                    'run' {
-                        $rr = Invoke-MaaRun -S $S -ExpectedChains @($prm)
-                        $rd = [pscustomobject]@{ status = [string]$rr.Status; detail = [string]$rr.Detail }
-                        if ($null -ne $rr.Duration) { $rd | Add-Member -NotePropertyName duration -NotePropertyValue $rr.Duration }
-                        $data = $rd
-                    }
+                    # B-2c③：'run' case 与白名单里那枚一起删净(双删)——Invoke-MaaRun 已在核内真做(maa_run + RealHost)，
+                    # 现场那 13 枚参数从 ctx 的 maaRun 取。桩面留一 case 就等于给"分派漏改"留后门：
+                    # 真核不再 ask run，若两侧有一边漏改，这里会当成成功回执吞掉，双删才让它在白名单处当场抛。
                     'stop' { Stop-MaaAndGame -S $S; $data = $true }
                     'sleep' { Start-Sleep -Seconds ([int]$prm); $data = $true }
                     'skip' {
