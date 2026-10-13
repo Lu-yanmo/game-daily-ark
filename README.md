@@ -70,9 +70,9 @@ C# 面板另有三个不弹窗的自检：`tools\panel-cs\panel-cs.exe --selftes
 ```powershell
 .\daily-clear.ps1 -DryRun              # 预览：今天判定成什么、将要改哪些配置
 .\daily-clear.ps1                      # 真跑一轮（会弹一次 UAC，除非走计划任务通道）
-.\daily-clear.ps1 -Ack                 # 「新活动我手动打过了」→ 之后每天自动刷活动图
 .\daily-clear.ps1 -ShopDone            # 「活动商店我已领空」→ 之后不再刷活动，剩余理智转长草
 .\daily-clear.ps1 -ShopReset           # 误标了/活动又开新一批兑换 → 撤销领空标记
+.\daily-clear.ps1 -Force               # 本轮忽略活动图的自证结论，强行按活动图刷
 .\daily-clear.ps1 -Farm                # 本轮只刷目标材料缺口（ark.farmTargets 配的目标，见 3.5）
 .\daily-clear.ps1 -Stage SK-5          # 临时指定刷某个关卡
 .\daily-clear.ps1 -SkipCleanup         # 跑完不关端游（自己接着玩）
@@ -213,17 +213,25 @@ MAA 认界面靠模板匹配，**它的模板集里没有的东西它就看不�
 开关在 `config\settings.json` 的 `runtime`：`supervisor`（没写这行就是开）、`supervisorIntervalSeconds`（默认 60）、
 `supervisorQuietMinutes`（默认 30）、`supervisorMaxInterventions`（默认 1，写 0 就是纯报告模式，一次都不重启）。
 
-## 3. 两道手动门：活动确认 + 商店领空
+## 3. 两道门：活动图自证（机器每轮）+ 商店领空（人工打点）
 
-**门 1：活动确认**（「版本更新了但我还没打活动关卡就先别刷」）
+**门 1：活动图自证**（「我到底打通了没，脚本每轮自己试一次」）
+
+2026-10-12 起这一道不再要人工确认。每一轮都把当前活动的**最后一关**当探针递给 MAA：
+
+- 进得去（MAA 认库后的关卡名单里有它）＝判为已打通 → 理智照烧活动图；
+- 被 MAA 修剪掉＝判为还没打通 → 当日剩余轮改刷长草套餐（理智照烧、不空放），日志里明记这条结论；
+  你自己在游戏里打通后，下一轮自动切回活动图，不需要敲任何开关。
+
+结论存在 `state\ark-event-probe.json`（按活动 id + 当天日期记，隔天重判），`status.ps1` 和面板都能看到今天那条。
+想立刻压过当天的结论强行刷活动图：
 
 ```powershell
-.\daily-clear.ps1 -Ack -DryRun    # 只登记确认，不跑
-.\daily-clear.ps1 -Ack            # 登记确认 + 顺手跑一轮
+.\daily-clear.ps1 -Force            # 本轮忽略活动图自证结论，强行按活动图刷
 ```
 
-确认状态存在 `state\ark-event-ack.json`（按活动 id 记，一个活动确认一次）。不想用这道门：
-`config\settings.json` 里 `ark.eventRequiresAck` 改 `false`。临时越过用 `-Force`。
+旧的 `-Ack` 与 `config\settings.json` 里的 `ark.eventRequiresAck` 已不再影响判定，只为兼容旧配置留着；
+`state\ark-event-ack.json` 里的旧记录从此不参与判定。
 
 **门 2：商店领空**（「活动商店换完了就别再刷活动了」）
 

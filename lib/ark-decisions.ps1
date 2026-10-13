@@ -76,6 +76,7 @@ function Resolve-ArkPlan {
         shopDone = $shopDone
         verbAck = (Get-GdEntryVerb -Game ark -Verb Ack)
         verbShopReset = (Get-GdEntryVerb -Game ark -Verb ShopReset)
+        probe = (Get-GdArkEventProbe)
     }
     return Invoke-GdCli -Verb 'decide-ark' -Body $body
 }
@@ -116,4 +117,61 @@ function Get-ArkEvent {
     $a = @{ S = $S; Data = $data; Source = $source; Now = $now }
     if ($IgnoreShopDone) { $a['IgnoreShopDone'] = $true }
     return (Resolve-ArkPlan @a)
+}
+
+# ===== 每轮自证活动图(2026-10-12 第 1 刀) =====
+# 需求原话(用户)：「活动要打，需要打通活动」「直接用尝试用 maa 进入活动最后一关，如果通了就说明通关了」。
+# 于是把 -AckArk 那道人肉确认门换成机器自证：每轮拿活动最后一关当探针递下去，跑完从同一批现场读数
+# (observe-maa-stage-open 那份)判"进得去没进得去"，结论落 state\ark-event-probe.json，下一轮喂回判定层。
+# 判据(名单里有没有这一关)与"结论不落地"那三种无效形状全住在 C#(decide-ark-event-probe)，壳只管读盘写盘。
+# 键集与 Decisions.cs 那侧的 probe 入参一一对上：Date / EventKey / Stage / Entered / Evidence。
+function Get-GdArkEventProbePath { Join-Path $global:GD.State 'ark-event-probe.json' }
+
+function Get-GdArkEventProbe {
+    <# 只读：上一轮的活动图自证结论。文件不在/读坏了回 $null —— 判定层据此当"没探过"处理，
+       照常拿最后一关当探针，绝不会因为采集失败就把活动图判成没打通(那才是真丢理智)。 #>
+    $p = Get-GdArkEventProbePath
+    if (-not (Test-Path -LiteralPath $p)) { return $null }
+    try { $m = Read-GdJson -Path $p } catch { return $null }
+    if (-not $m -or -not [string]$m.EventKey) { return $null }
+    return [pscustomobject]@{
+        Date     = [string]$m.Date
+        EventKey = [string]$m.EventKey
+        Stage    = [string]$m.Stage
+        Entered  = [bool]$m.Entered
+        Evidence = [string]$m.Evidence
+    }
+}
+
+function Update-GdArkEventProbe {
+    <# 收尾采集：本轮下发过活动关(判定给得出 EventKey+StageHint)且有观测读数时，问一次
+       decide-ark-event-probe，Valid 才落盘。这一步和认栽标记一样属于"活"，任何失败只 WARN 不影响本轮结论。 #>
+    param([Parameter(Mandatory)]$S, $Decision, $Obs)
+    if (-not $Decision -or -not [string]$Decision.EventKey) { return $null }
+    $target = [string]$Decision.StageHint
+    if (-not $target) { return $null }
+    $d = Invoke-GdCli -Verb 'decide-ark-event-probe' -Body ([pscustomobject]@{
+        date     = (Get-Date).ToString('yyyy-MM-dd')
+        eventKey = [string]$Decision.EventKey
+        stage    = $target
+        obs      = $Obs
+    })
+    if (-not [bool]$d.Valid) {
+        Write-GdLog "活动图自证：$([string]$d.Evidence)" -Level WARN
+        return $null
+    }
+    $obj = [ordered]@{
+        Date     = [string]$d.Date
+        EventKey = [string]$d.EventKey
+        Stage    = [string]$d.Stage
+        Entered  = [bool]$d.Entered
+        Evidence = [string]$d.Evidence
+    }
+    Write-GdJson -Path (Get-GdArkEventProbePath) -Object $obj
+    if ($obj.Entered) {
+        Write-GdLog "活动图自证：$($obj.Stage) 进得去 → 下一轮照常按活动图刷($($obj.Evidence))" -Level OK
+    } else {
+        Write-GdLog "活动图自证：$($obj.Stage) 进不去 → 判为还没打通，当日剩余轮改刷长草($($obj.Evidence))" -Level WARN
+    }
+    return $obj
 }

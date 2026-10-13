@@ -3,8 +3,11 @@
 # 2026-09-23 内部拆分：函数体是从 daily-clear.ps1 逐字搬来的，只有两处形式上必须改：
 #   1) 原来靠脚本作用域闭包拿 $S，现在改成显式 -S 参数；
 #   2) 原来直接写 $results['ark']，现在把结果 return 出去，由入口脚本决定往哪儿存。
-# 公开命令行(-AckArk / -ArkShopDone / -ArkStage / -Force)仍然长在 daily-clear.ps1 里 ——
+# 公开命令行(-ArkShopDone / -ArkStage / -Force)仍然长在 daily-clear.ps1 里 ——
 # 本文件只管"给定这件事就干什么"，不管"用户敲了什么参数"。
+# 追加(2026-10-12 第 1 刀)：-AckArk 与 Set-GdArkAck 一并退场 —— 用户口径「活动要打，需要打通活动，
+# 直接用尝试用 maa 进入活动最后一关，如果通了就说明通关了」⇒ 活动图改由每轮机器自证(见 ark-decisions.ps1
+# 尾段那三枚函数)，人肉确认门不再存在。Get-GdAckMap/Set-GdAckKey 底座保留：1999 那一路共用同一套 ack 机制。
 #
 # 依赖：调用方先点 lib\common.ps1、lib\ark-decisions.ps1(或聚合的 lib\decisions.ps1)、lib\maa.ps1。
 # 这里不重复点，理由见 lib\decisions.ps1 开头的说明(重复点会把控制台编码再设一遍，白做工)。
@@ -37,17 +40,6 @@
 #  实际不可回滚")；两分支返回值同形(hashtable @{Status;Detail;Duration?})，调用方无感。
 #  改协议先改 main.rs 再复拍三门(arkskip/live/events)，不要在这里加规则。
 # ──────────────────────────────────────────────────────────────────────────────
-
-function Set-GdArkAck {
-    <# -AckArk：确认"这个活动的图我自己手动打过了" → 之后日常才允许自动刷活动关卡 #>
-    param([Parameter(Mandatory)]$S)
-    $d = Get-ArkEvent -S $S -IgnoreShopDone
-    if (-not $d.EventKey) { Write-GdLog "方舟当前没有待确认活动：$($d.Reason)" -Level WARN }
-    else {
-        Set-GdAckKey -Game 'ark' -Key $d.EventKey
-        Write-GdLog "已确认方舟活动 $($d.EventKey)[$($d.EventTip)]→ 日常将刷 $($d.StageHint)" -Level OK
-    }
-}
 
 function Set-GdArkShopState {
     <# -ArkShopDone / -ArkShopReset：标记或撤销"活动商店已领空"。-Done 为真=标记，为假=撤销 #>
@@ -143,7 +135,11 @@ function Invoke-GdArkDailyLegacy {
     $maaCfg = Set-MaaDailyConfig -S $S -Decision $ark -Apply
     $maaCfg.Changes | ForEach-Object { Write-GdLog "  MAA：$_" }
     if ($ark.Mode -eq 'event-pending') {
-        Write-GdLog "本轮跳过理智作战(只跑公招/基建/信用/领奖)；自己打过活动图后跑 daily-clear.ps1 $(Get-GdEntryVerb -Game ark -Verb Ack)" -Level WARN
+        # 第 1 刀(10-12)改口：这一档不再等于"跳过理智作战"——判定层现在把 ClearSanity 留在真，Fight 照跑、
+        # 只是换成长草套餐(理智不空放)。旧那句"你自己打过之后去敲活动确认开关"的话术已随之退场
+        # (那个开关从入口参数里删了，所以这里也不写它的参数名 —— tools\test-lib.ps1 的 [t1d] 会按
+        #  "入口脚本名 + 参数"的字面形状扫全仓，注释里写它一样会红)。
+        Write-GdLog "本轮不打活动图(今天试打被 MAA 剪掉，判为还没打通) → 理智照烧、刷长草计划；你打通后下一轮自动切回活动图" -Level WARN
     }
     $run = {
         # 拉端游必须在 $run 里面：重试前那句 Stop-MaaAndGame 是把端游和 MAA 一起关掉的，
@@ -262,6 +258,8 @@ function Invoke-GdArkDailyLegacy {
         $on = Update-GdArkStageObs -S $S -Obs $obs
         if ($on) { Write-GdLog "关卡开放观测已记账(账本现 $on 条)" -Level OK }
     } catch { Write-GdLog "关卡开放观测没做起来：$($_.Exception.Message)(不影响本轮)" -Level WARN }
+    # 每轮自证活动图(第 1 刀，2026-10-12)不在这里：采集挂在 lib\ark-module.ps1 的 Run 钩子上，
+    # 旧链与换头执行器共用那一处；判据与"结论不落地"的无效形状全住 C#(decide-ark-event-probe)。
     return $r
 }
 
@@ -372,6 +370,11 @@ function Invoke-GdArkDailyRust {
                 if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog $txt -Level $lvl } else { Write-GdLog $txt }
             }
             $envText = ''
+            if ([int]$cap.StreamTimeouts -gt 0) {
+                # 只有"核已退、管道还被人持着"才走到这一格；信封本身在 --out 那个文件里，不受影响，
+                # 但 stdout 兜底那一路本轮不可用 —— 必须留一行可查的 WARN，不许让"放弃"长得像"没事"。
+                Write-GdLog "R3③ 换头：收流有界等待超时，已放弃 $([int]$cap.StreamTimeouts) 路 stdout/stderr(被起进程仍持管道写端；stdout 兜底那一路本轮不可用)" -Level WARN
+            }
             if (Test-Path -LiteralPath $envFile) { $envText = [System.IO.File]::ReadAllText($envFile) }
             else {
                 foreach ($ln in @($cap.Lines)) { $t = ([string]$ln).TrimStart(); if ($t.StartsWith('{')) { $envText = $t } }
@@ -394,6 +397,8 @@ function Invoke-GdArkDailyRust {
                 $dr = $envelope.result
                 $out = @{ Status = [string]$dr.status; Detail = [string]$dr.detail }
                 if ($null -ne $dr.duration) { $out.Duration = $dr.duration }
+                # 每轮自证活动图(第 1 刀，10-12)不在这里：与旧链共用 lib\ark-module.ps1 的 Run 钩子那一处采集，
+                # 换头这一路拨开/拨关都照样只采一次；拨关(默认)时本函数整体不触。
                 return $out
             }
             if ($kind -eq 'fail') { throw ([string]$envelope.error) }

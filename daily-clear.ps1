@@ -3,11 +3,11 @@
 
   .\daily-clear.ps1 -DryRun          # 只看今天会怎么跑，不碰任何程序
   .\daily-clear.ps1                  # 完整跑一轮
-  .\daily-clear.ps1 -Ack             # 确认"新活动的图我自己手动打过了"→ 之后每天自动刷活动关卡
   .\daily-clear.ps1 -ShopDone        # 确认"活动商店已领空"→ 剩余理智改刷长草计划
   .\daily-clear.ps1 -ShopReset       # 撤销上面的领空标记(误点/活动又开新一批兑换)
   .\daily-clear.ps1 -Farm            # 本轮只刷目标材料缺口(config 里 ark.farmTargets 配的目标)
   .\daily-clear.ps1 -Stage SK-5      # 临时指定刷哪几关(逗号分隔，会拿 MAA 的关卡表校验)
+  .\daily-clear.ps1 -Force           # 本轮忽略活动图的"每轮自证"结论，强行按活动图刷
   .\daily-clear.ps1 -SkipCleanup     # 跑完不关端游/MAA(自己接着玩)
   .\daily-clear.ps1 -NoElevate       # 禁止自动提权(只在看输出时用；真跑大概率连不上端游)
   计划任务每日按 config\settings.json 的 schedule.times 调用：daily-clear.ps1 -Tag auto
@@ -16,15 +16,19 @@
   退出码：0=这一轮判定为完成；2=没完成(细节看 logs\ 里那一轮的日志和通知气泡)。
 
   —— 本文件现在是什么 ——
-  只是命令行外壳：把 -Ack / -ShopDone 这些短名翻译成"给 ark 模块的哪道门"，剩下的整轮流程
+  只是命令行外壳：把 -ShopDone / -ShopReset 这些短名翻译成"给 ark 模块的哪道门"，剩下的整轮流程
   在 lib\modules.ps1 的 Invoke-GdDailyRound 里 —— 和另一款游戏的仓库、以及本地那份管两款的入口，
   跑的是同一套实现。这个仓库里只装了 ark-module.ps1，所以注册表天然只有一款，不用 -Games 参数。
+  -Ack 这一道人工门已于 2026-10-12 退场：活动图改由每轮拿"活动最后一关"当探针自证(进得去就刷，
+  被 MAA 修剪掉就当日改刷长草、下一轮自动切回)，参数先留着只为兼容还在敲它的旧脚本，敲下去只打日志。
 #>
 # 运行环境：PowerShell 7(pwsh)。本仓库只支持 7，不再为系统自带的 Windows PowerShell 5.1 留兼容退路。
 [CmdletBinding()]
 param(
     [ValidateSet('auto', 'manual')][string]$Tag = 'manual',
     [switch]$DryRun,
+    # -Ack 现在是"只打日志的兼容位"：2026-10-12 起活动图改每轮机器自证，判定层不再读 ark-event-ack；
+    # 参数留着只为还在敲它的旧脚本/计划任务，删它留到推仓那批和导出表自检一起动。
     [Alias('ConfirmEvent')][switch]$Ack,
     [Alias('MarkShopDone')][switch]$ShopDone,
     [switch]$ShopReset,

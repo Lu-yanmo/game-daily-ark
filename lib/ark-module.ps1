@@ -33,6 +33,9 @@ Register-GdModule ([pscustomobject]@{
         # kind 叫 mumu 才对得上 adb 那条链。所以这层对照只写在各自清单里，外壳(tools\vision-ask.ps1)只问这一项。
         VisionKind       = 'ark'
         EntryVerbs       = @{
+            # Ack 这一格 2026-10-12 起只是**协议占位**：入口的 -AckArk 参数已退场，判定层的提示语也不再生成
+            # 「你自己打过之后敲 -AckArk」那句。留着的原因是 Rust 链体那枚 entryverb("ark","Ack") 的 ask 还在
+            # 协议名册里(删格=两侧投影变形状=要升契约号)，而它的返回值已经不进任何文案。见 main.rs 同一处注释。
             Merged = @{ Ack = '-AckArk'; ShopDone = '-ArkShopDone'; ShopReset = '-ArkShopReset'; Farm = '-FarmArk' }
         }
         Hooks = [pscustomobject]@{
@@ -53,7 +56,24 @@ Register-GdModule ([pscustomobject]@{
                 return (Resolve-GdArkDecision -S $S -Stage $Opt.Stage -Force:([bool]$Opt.Force) -Farm:([bool]$Opt.Farm))
             }
             Preview   = { param($S, $Decision) Show-GdArkPreview -S $S -Decision $Decision }
-            Run       = { param($S, $Decision) return (Start-GdArkDaily -S $S -Decision $Decision) }
+            Run       = {
+                param($S, $Decision)
+                $r = Start-GdArkDaily -S $S -Decision $Decision
+                # 每轮自证活动图(第 1 刀，2026-10-12)：采集挂在**这里**而不是两条链体各挂一处——
+                # 旧链(Invoke-GdArkDailyLegacy)与换头执行器(Invoke-GdArkDailyRust)共用这一个入口，
+                # 判据只写一遍；写在链体内会让 ark 那两枚 golden 门的调用序多出一枚纯只读记号
+                # (Get-GdMaaStageObservation 桩往投影里追加 OBS)，而这一步不改变任何链体行为(它只写
+                # state\ark-event-probe.json 给下一轮的判定层)，本就不属门的拍面。
+                # 只在这一轮真跑到 MAA 关门前(ok)才采：asst.log 是连日不轮转的大文件，早退/卡死的轮
+                # 读到的关名单属于"上一班"——把别人的名单写成今天的结论，等于拿假阳性烧今天的理智。
+                # 抛任何错都只 WARN：本轮结论由链体给，自证只是给下一轮留的读数。
+                if ([string]$r.Status -eq 'ok') {
+                    try {
+                        [void](Update-GdArkEventProbe -S $S -Decision $Decision -Obs (Get-GdMaaStageObservation -S $S))
+                    } catch { Write-GdLog "活动图自证没做起来：$($_.Exception.Message)(不影响本轮)" -Level WARN }
+                }
+                return $r
+            }
             Stop      = {
                 param($S)
                 Stop-MaaAndGame -S $S
@@ -61,7 +81,19 @@ Register-GdModule ([pscustomobject]@{
                 # 挪进这一路的收尾钩子后，只会在真跑过方舟的轮里执行(更合理，也不会碰不到就报错)
                 Get-Process -Name 'MaaAgentBinary' -ErrorAction SilentlyContinue | ForEach-Object { try { $_.Kill() } catch { } }
             }
-            Ack       = { param($S) Set-GdArkAck -S $S }
+            Ack       = {
+                param($S)
+                # 这一格**名字**必须留着：lib\modules.ps1 把 Ack 列在必需钩子名册里(七枚)，删格=装载校验红。
+                # 但 2026-10-12 第 1 刀起这条路上没有"活动确认门"了 —— 判定层改读每轮自证
+                # (state\ark-event-probe.json)，入口的 -AckArk 参数也已退场，原来的 Set-GdArkAck 一并删除。
+                # 所以这里只把话说清楚，不再写 ack 表(写了也没人读)，绝不静默空转。
+                # ⚠ 这句提示语里**不许写 -Games ark**：本文件会原样进 ark 单游戏导出仓库，
+                # 那边的入口 param() 里没有 -Games(只有 -Force)，玩家照抄就报"找不到参数"——
+                # tools\test-lib.ps1 的 [t1d] 门静态扫"入口脚本名 + 参数"就是专抓这一类(2026-10-12 第 1 刀曾红过一次)。
+                # 先例见 lib\ark-daily.ps1 那条"退场的开关不写参数名"的口径：共享代码只写两棵树都收的参数。
+                Write-GdLog '方舟的「活动确认」门已退场(2026-10-12)：每轮拿活动最后一关当探针自证，进得去就刷活动图，不需要人敲开关；想立刻无视当日结论强刷 = daily-clear.ps1 -Force' -Level WARN
+                return $null
+            }
             ShopState = { param($S, $Done) Set-GdArkShopState -S $S -Done:([bool]$Done) }
 
             # ---- 监督 agent(lib\supervisor.ps1)的可选钩子：给了才监督，重启钩子给了才允许干预。----

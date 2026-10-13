@@ -8,7 +8,7 @@
     "ark.planByWeekday: 键为星期几（1=周一 ... 7=周日），值为该日要刷的关卡代号；未配置的星期回落到 defaultStage。",
     "关卡代号已按 MAA 自带 resource/stages.json 核对：CE-5 龙门币 / LS-5 作战记录(经验) / SK-5 碳素 / CA-5 技巧概要，均为 30 理智、常驻每日可刷。",
     "材料本轮哪些天开放由游戏服务端决定，脚本不猜；想固定刷某种材料，就把当天开放的关卡代号填进 planByWeekday。",
-    "eventRequiresAck: true = 出了新活动但你还没自己通一遍时，脚本只跑非战斗部分(公招/基建/信用/领奖)并提醒，不会自动烧体力；打完用 -Ack 登记。",
+    "eventRequiresAck: 2026-10-12 起不再读，留着只为兼容旧配置。方舟的活动图已经换掉那道人工门——每轮拿活动最后一关当探针递进 MAA，进得去就按活动图刷，被 MAA 修剪掉就判你还没打通、当日剩余轮改刷长草(理智照烧、不空放)，你自己在游戏里打通后下一轮自动切回，全程不需要人敲开关；state\\ark-event-ack.json 里的旧记录从此不影响判定。想立刻压过今天的结论强行刷活动图：-Force。",
     "shopDoneStopsEvent: true = 活动商店领空后手动打点(-ShopDone)，该活动剩余理智不再刷，回落到长草计划；标记记在 state\\ark-shop-done.json，按活动 id 分别生效，换了新活动自动不适用。要恢复刷：-ShopReset。",
     "runtime.abortOnMaaStallWarning: true = 见到 MAA 自己的『日志无更新/停滞』告警就判失败并收尾，避免整晚挂着。",
     "runtime.keepScreenOn: true = 跑日常期间顶住熄屏/睡眠并关掉屏保(SetThreadExecutionState + SystemParametersInfo)。屏保策略(2026-09-26)：只关不复——收尾不再恢复；起跑时若会话已被屏保/锁屏桌面接管，方舟一路直接早退 not-started 不烧 12 分钟。端游截图要求桌面『已解锁』。",
