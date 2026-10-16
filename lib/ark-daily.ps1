@@ -371,9 +371,12 @@ function Invoke-GdArkDailyRust {
             }
             $envText = ''
             if ([int]$cap.StreamTimeouts -gt 0) {
-                # 只有"核已退、管道还被人持着"才走到这一格；信封本身在 --out 那个文件里，不受影响，
-                # 但 stdout 兜底那一路本轮不可用 —— 必须留一行可查的 WARN，不许让"放弃"长得像"没事"。
-                Write-GdLog "R3③ 换头：收流有界等待超时，已放弃 $([int]$cap.StreamTimeouts) 路 stdout/stderr(被起进程仍持管道写端；stdout 兜底那一路本轮不可用)" -Level WARN
+                # 口径（10-16 #473 取证后定档）：这一格**每轮必现**，不是异常也不是回归 —— 持有那份管道写端的
+                # 既不是 gdcore 自己(它已退)、也不是它起的 MAA(三条 Stdio::null 全在)，而是链体里点过的**外部常驻服务**
+                # (adb server 一类被 fork 成常驻并继承发起方 stdio)；那进程不归我们创建，改 spawn 参数治不掉。
+                # 真日志走 --log-sink、进度判据走 journal／协议文件，stdout 只是冗余兜底 ⇒ 级别降 INFO、
+                # 每轮一行仍可查，不许让"放弃"长得像"没事"，也不许每轮拿 WARN 吓人(见 docs\rust-core-plan.md §11.61)。
+                Write-GdLog "R3③ 换头：收流按有界等待放弃 $([int]$cap.StreamTimeouts) 路 stdout/stderr(外部常驻服务持写端，stdout 兜底那一路本轮不可用；真日志见 --log-sink)"
             }
             if (Test-Path -LiteralPath $envFile) { $envText = [System.IO.File]::ReadAllText($envFile) }
             else {
