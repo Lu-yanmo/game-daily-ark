@@ -28,7 +28,7 @@
 # Start-GdArkDaily 的重试分流(`Status -notin {ok,not-started,unknown-format}` ∧ retryOnce → 重试一次、
 #  否则 unknown-format 落 ERROR 整句)已迁到 tools\panel-cs\Orchestration.cs(verb：decide-daily-retry，
 #  -Game ark)。壳里留的正是"活"：Stop-MaaAndGame、sleep 25、重跑 $run、提权提示那记独立 if。
-#  旧分流在原地逐行 # 前缀冻结(test-ark:163 钉 `Status -notin @(…)` 字面锚，别"顺手搬走")。
+#  旧分流在原地逐行 # 前缀冻结(test-ark 钉 `Status -notin @(…)` 字面锚——那本在并行在途，行号不引，取证见 docs\rust-core-plan.md §11.92 ⑥，别"顺手搬走")。
 #  改分流规则/话术请改 Orchestration.cs 并复拍 tools\probe-live-golden.ps1，不要在这里加 if。
 # ──────────────────────────────────────────────────────────────────────────────
 #
@@ -156,7 +156,7 @@ function Invoke-GdArkDailyLegacy {
     <#
       ===== 批次 8：重试分流改问 decide-daily-retry(Orchestration.cs，-Game ark) =====
       跳过清单、retryOnce 合取与两句文案住在 C#；本壳只回放日志 + 落地"活"(收尾/重跑)。
-      旧两分支逐行 # 前缀冻结在下方(test-ark:163 钉 `Status -notin @(…)` 字面锚)。
+      旧两分支逐行 # 前缀冻结在下方(test-ark 钉 `Status -notin @(…)` 字面锚；行号不引，取证见 §11.92 ⑥)。
     #>
     #     if ($r.Status -notin @('ok', 'not-started', 'unknown-format') -and $S.runtime.retryOnce) {
     #         Write-GdLog '方舟本轮未成功 → 收尾后重试一次' -Level WARN
