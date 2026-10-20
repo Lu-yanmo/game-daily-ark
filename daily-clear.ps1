@@ -17,8 +17,11 @@
 
   —— 本文件现在是什么 ——
   只是命令行外壳：把 -ShopDone / -ShopReset 这些短名翻译成"给 ark 模块的哪道门"，剩下的整轮流程
-  在 lib\modules.ps1 的 Invoke-GdDailyRound 里 —— 和另一款游戏的仓库、以及本地那份管两款的入口，
-  跑的是同一套实现。这个仓库里只装了 ark-module.ps1，所以注册表天然只有一款，不用 -Games 参数。
+  交给 lib\rust-round.ps1 的 Invoke-GdDailyRoundDispatch —— 和另一款游戏的仓库、以及本地那份管两款的入口，
+  跑的是同一套实现。这一枚调度器把整轮交给核内十段骨架(gdcore.exe --daily-round)，而这个仓库按口径只带
+  Rust 源码、不带编译产物 ⇒ 克隆侧要真跑一轮得先自己编内置件(pwsh -File tools\rustcore\build.ps1，要 cargo)；
+  编不出来 / 拿不到内置件，这一轮就是**拒跑(2)**并落一句人话 —— PS 十段兜底已于 2026-10-20 乙批② 退役，
+  不再有"换人跑"这一档。这个仓库里只装了 ark-module.ps1，所以注册表天然只有一款，不用 -Games 参数。
   -Ack 这一道人工门已于 2026-10-12 退场：活动图改由每轮拿"活动最后一关"当探针自证(进得去就刷，
   被 MAA 修剪掉就当日改刷长草、下一轮自动切回)，参数先留着只为兼容还在敲它的旧脚本，敲下去只打日志。
 #>
@@ -43,6 +46,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\common.ps1')
 . (Join-Path $PSScriptRoot 'lib\decisions.ps1')      # 门面：仓库里有哪些判定文件就点哪些
 . (Join-Path $PSScriptRoot 'lib\modules.ps1')
+. (Join-Path $PSScriptRoot 'lib\rust-round.ps1')   # 入口转接层：整轮交给核内十段骨架，拿不到内置件就整轮拒跑(乙批② 起没有 PS 十段回退)
 . (Join-Path $PSScriptRoot 'lib\supervisor.ps1')   # 监督 agent(可整行删掉=这一轮没人监督，主流程不受影响)
 
 Start-GdTranscript -Tag "daily-$Tag"
@@ -78,6 +82,6 @@ if ($ShopDone) { $gates += @{ Id = 'ark'; Verb = 'ShopDone' } }
 if ($ShopReset) { $gates += @{ Id = 'ark'; Verb = 'ShopReset' } }
 
 # 汇总/气泡里用中文短名('方舟')而不是模块 id：这份入口历史上就是这个措辞，别在重构里顺手改掉。
-$code = Invoke-GdDailyRound -S $S -ElevateScript (Join-Path $PSScriptRoot 'daily-clear.ps1') -BoundParams $PSBoundParameters -Gates $gates -Opt @{ Stage = $Stage; Farm = [bool]$Farm } -Force:$Force -DryRun:$DryRun -SkipCleanup:$SkipCleanup -NoElevate:$NoElevate -NameField ShortName -NoticeOwner '方舟' -Tag $Tag
+$code = Invoke-GdDailyRoundDispatch -S $S -ElevateScript (Join-Path $PSScriptRoot 'daily-clear.ps1') -BoundParams $PSBoundParameters -Gates $gates -Opt @{ Stage = $Stage; Farm = [bool]$Farm } -Force:$Force -DryRun:$DryRun -SkipCleanup:$SkipCleanup -NoElevate:$NoElevate -NameField ShortName -NoticeOwner '方舟' -Tag $Tag
 Write-GdLog ('收尾 ' + (Get-GdCoreReadout -ElapsedSec ((Get-Date) - $coreT0).TotalSeconds))
 exit $code

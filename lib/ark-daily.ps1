@@ -351,6 +351,14 @@ function Invoke-GdArkDailyRust {
         }
     })
 
+    # 外层硬闸(10-20)：核自己不退出时，Start-GdNativeStreamed 旧写法是**无界**等待，壳会陪着睡到计划任务
+    # PT3H 把整班硬砍(10-20 18:00 班实证：核睡在 panel-cs 那一跳的收流上 34 分钟，台账零行)。
+    # 取"内层业务超时 + 15 分钟"：内层那 70 分钟是**判据**，核照它自己收尾并回 timeout 信封；外层这一格
+    # 只负责"绝不陪葬"，所以必须比内层宽，否则外层抢先把正常判定杀了。settings 那枚键没填时兜底 70，
+    # 不许兜底成 0(那等于 15 分钟就砍，比内层还短)。
+    $hardMin = [int]$S.runtime.arkTimeoutMinutes
+    if ($hardMin -le 0) { $hardMin = 70 }
+    $hardMs = ($hardMin + 15) * 60000
     $round = 0
     while ($true) {
         $round += 1
@@ -368,7 +376,7 @@ function Invoke-GdArkDailyRust {
                 $lvl = [string]$r.Level
                 $txt = [string]$r.Text
                 if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog $txt -Level $lvl } else { Write-GdLog $txt }
-            }
+            } -HardWaitMs $hardMs
             $envText = ''
             if ([int]$cap.StreamTimeouts -gt 0) {
                 # 口径（10-16 #473 取证后定档）：这一格**每轮必现**，不是异常也不是回归 —— 持有那份管道写端的
@@ -377,6 +385,12 @@ function Invoke-GdArkDailyRust {
                 # 真日志走 --log-sink、进度判据走 journal／协议文件，stdout 只是冗余兜底 ⇒ 级别降 INFO、
                 # 每轮一行仍可查，不许让"放弃"长得像"没事"，也不许每轮拿 WARN 吓人(见 docs\rust-core-plan.md §11.61)。
                 Write-GdLog "R3③ 换头：收流按有界等待放弃 $([int]$cap.StreamTimeouts) 路 stdout/stderr(外部常驻服务持写端，stdout 兜底那一路本轮不可用；真日志见 --log-sink)"
+            }
+            if ($cap.WaitTimedOut) {
+                # 第三种病(10-20)：核**压根没退出**，被外层硬闸收尸 —— 与上面"已退但放弃收流"必须分两句(并成一句之后，
+                # 现场看到 WARN 就分不出该查核的等待还是查常驻服务)。这一支往下必然走"没给出信封"那条 throw，
+                # 台账因此有行：本闸的全部意义就是把"缺勤一天"换成"一段可归因的失败"。
+                Write-GdLog "R3③ 换头：核 $([int]($hardMs / 1000))s 仍没退出，已按外层硬闸结束它(它是没答，不是答错) —— 这一段按失败记账" -Level WARN
             }
             if (Test-Path -LiteralPath $envFile) { $envText = [System.IO.File]::ReadAllText($envFile) }
             else {

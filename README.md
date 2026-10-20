@@ -91,6 +91,32 @@ C# 面板另有三个不弹窗的自检：`tools\panel-cs\panel-cs.exe --selftes
    pwsh 若是 Microsoft Store(WindowsApps) 版，系统不允许直接对它提权，脚本会改用 `System32\cmd.exe` 做提权载体（UAC 上显示 cmd.exe，属正常）。
 3. **`-NoElevate`**：不提权直跑，只对手动场景有意义（端游那一路大概率连不上）。
 
+### 1.3 用 git 克隆的人：先决定「内置件」从哪来（拿不到就整轮拒跑）
+
+**每天那一轮的默认实现只有一份，住在内置件 `gdcore.exe` 里**（核内十段骨架，源码在 `tools\rustcore\src\main.rs`，
+`lib\rust-round.ps1` 是入口和它之间的转接层）。本仓库按「源码进仓、产物不入仓」的口径**只带 Rust 源码，
+不带编好的 `gdcore.exe`**。而 PowerShell 那条十段兜底已于 2026-10-20 退役（真身删了），所以入口拿不到内置件时
+**不再"换人跑"**，而是整轮拒跑：日志一句 `这一轮没跑：转接层拿不到内置件 gdcore.exe`，退出码 `2`。
+面板上点「开始跑一轮」得到的是同一句 —— 面板不自己判定，也不自己补跑。
+
+三条有出口的拿法，按省事程度排：
+
+1. **走下载页那对附件（推荐给不碰命令行的人）**：`game-daily-ark.exe` 里内嵌整棵脚本树**和内置件**
+   （打包链第 0 步就现场编 Rust，缺内置件宁可不打这枚 exe），第一次运行解到
+   `%LOCALAPPDATA%\game-daily-ark\app\`，之后双击就行，不需要 cargo、不需要自己编任何东西。
+2. **现场编**：`pwsh -File tools\rustcore\build.ps1`（要 Rust 工具链 `cargo`，普通玩家机器一般没有；
+   找不到工具链它会把装它的命令印出来）。产物落在 `tools\rustcore\target\release\gdcore.exe`，
+   那正是转接层找内置件的第二个位置。
+3. **从跑过的机器上拷**：把同版本的 `gdcore.exe` 放到 `tools\rustcore\gdcore.exe`（转接层候选序的第一档，
+   就是"随包走"那个位置），放好这一轮就起得来。
+
+两条例行要说清的，免得照着老印象敲：
+
+- **只想看今天会怎么判、不真跑一轮**：`pwsh -File status.ps1` 不碰内置件，克隆下来直接能看；
+  但 `daily-clear.ps1 -DryRun` 走的是同一把闸，同样整轮拒跑（退出码 `2`）。
+- **`GD_RUST_OFF=1` 或 `runtime.rustOff` 现在不再是「退回 PowerShell」**：那把主闸把内置件拨下线之后，
+  这条路上已经没有 PS 十段可退，效果同样是拒跑并说清原因。要让这台机器别再来这一轮，按第 5 节卸掉计划任务。
+
 ## 2. 每天到底刷什么（自动判定）
 
 读 MAA 官方活动接口 `api.maa.plus/.../StageActivityV2.json`（拉不到就退回 MAA 本地缓存 `cache\gui\StageActivityV2.json`）：
