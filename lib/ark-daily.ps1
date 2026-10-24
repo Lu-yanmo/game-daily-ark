@@ -25,20 +25,20 @@
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # ── 追加冻结(2026-09-27，PS→C# 批次 8)─────────────────────────────────────────
-# Start-GdArkDaily 的重试分流(`Status -notin {ok,not-started,unknown-format}` ∧ retryOnce → 重试一次、
-#  否则 unknown-format 落 ERROR 整句)已迁到 tools\panel-cs\Orchestration.cs(verb：decide-daily-retry，
-#  -Game ark)。壳里留的正是"活"：Stop-MaaAndGame、sleep 25、重跑 $run、提权提示那记独立 if。
-#  旧分流在原地逐行 # 前缀冻结(test-ark 钉 `Status -notin @(…)` 字面锚——那本在并行在途，行号不引，取证见 docs\rust-core-plan.md §11.92 ⑥，别"顺手搬走")。
-#  改分流规则/话术请改 Orchestration.cs 并复拍 tools\probe-live-golden.ps1，不要在这里加 if。
+#  重试分流的判据(跳过清单 ∧ retryOnce 与两句文案)住在 tools\panel-cs\Orchestration.cs 的
+#  decide-daily-retry(-Game ark 支)，链体的回放在 tools\rustcore\src\main.rs 的 ark_daily_chain。
+#  PS 侧那条臂连同在原地逐行 # 前缀冻结的旧分流已随 10-24 刀③ 整段出仓，取证见 docs\rust-core-plan.md。
+#  原来由 tools\test-ark.ps1 钉的 `Status -notin @(…)` 字面锚随臂改口到判据真正的家(Orchestration.cs 的
+#  ark 支窗口)，行为对面在 probe-arkdrive 的 retry-stalled 档——补尺先于删件，见 Start-GdArkDaily 上方那段。
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # ── R3③ 换头(2026-10-06)─────────────────────────────────────────────────────────
-# Start-GdArkDaily 从"整函数"变成**调度器**(文件尾)：开关(Test-GdRustDailyPath，住 common.ps1，
-#  三把判据见 docs\r0-adrs.md §5.4)拨开 → Invoke-GdArkDailyRust 起内置件 gdcore.exe 走换头重入
-#  协议(驱动档 --drive-ark-daily：问-答-重放；动作集=main.rs 的 ark_daily_chain)；拨关(默认) →
-#  原身逐字保留为 Invoke-GdArkDailyLegacy，行为一字不变。接线点只此一处(ADR §5.4"多处接线=
-#  实际不可回滚")；两分支返回值同形(hashtable @{Status;Detail;Duration?})，调用方无感。
-#  改协议先改 main.rs 再复拍三门(arkskip/live/events)，不要在这里加规则。
+#  本刀起调度器只剩**直连核内驱动档**那一臂：Invoke-GdArkDailyRust 起内置件 gdcore.exe 走换头重入
+#  协议(驱动档 --drive-ark-daily：问-答-重放；动作集=main.rs 的 ark_daily_chain)。PS 回退臂
+#  Invoke-GdArkDailyLegacy 连同其函数体已整段出仓——这是决定不是疏漏：判据一枚没动，内置件不在场就
+#  当场抛错，不再有"拨关走原身"那条退路。接线点仍只此一处(ADR §5.4"多处接线=实际不可回滚")。
+#  返回值仍是 hashtable @{Status;Detail;Duration?}，调用方无感；那把换头主闸已随 10-24 刀④ 出仓。
+#  改协议先改 main.rs 再复拍四门(arkskip/live/events/arkdrive)，不要在这里加规则。
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Set-GdArkShopState {
@@ -104,182 +104,26 @@ function Show-GdArkPreview {
     Write-GdLog ("  端游窗口：" + $(if ($win) { "已存在 [$($win.Name)#$($win.Id)] $($win.Title)" } else { "没有 → 会先启动 $($S.paths.arknightsExe) 再让 MAA 连" }))
 }
 
-# R3③ 换头(2026-10-06)：原身只改了函数名(Start-GdArkDaily → Invoke-GdArkDailyLegacy)，函数体一字未动；
-# 新入口 Start-GdArkDaily 是文件尾的调度器(开关拨开走 Rust 驱动档，拨关走这里)。
-function Invoke-GdArkDailyLegacy {
-    <# 真正跑一轮方舟：接管关闭 → 写配置 → 拉端游 → 跑 MAA → 该重试就重试 → 收尾。返回 @{Status;Detail;Duration} #>
-    param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Decision)
-    Write-GdLog '--- 方舟(端游 + MAA)---' -Level STEP
-    # 起跑前置判定(2026-09-26)：06:00 两轮都死在"会话被屏保/锁屏桌面接管"——输入进不来，
-    # MAA 必然报"未找到窗口"，端游启动+等待白烧 12 分钟。桌面不对就直接记 not-started 早退，把原因写全。
-    $desk = Get-GdInputDesktopName
-    if ($desk -and $desk -ne 'Default') {
-        # 把"当时屏保到底装着什么"一起写进原因：事后翻 history.csv 就知道是谁干的，
-        # 不用再猜。读数函数只读注册表，读不到就说不知道，绝不因为这条把早退挡住。
-        $svTxt = ''
-        try {
-            if (Get-Command Get-GdScreensaverVerdict -ErrorAction SilentlyContinue) {
-                $svv = Get-GdScreensaverVerdict -Cfg (Get-GdScreensaverConfig)
-                if ($svv) { $svTxt = [string]$svv.Detail }
-            }
-        } catch { $svTxt = '' }
-        Write-GdLog "跳过本轮：输入桌面=$desk(屏保/锁屏已接管会话，鼠标键盘进不来；读不到桌面名不会走这条)" -Level WARN
-        if ($svTxt) { Write-GdLog "  屏保读数：$svTxt" -Level WARN }
-        $detail = "起跑时会话在 $desk 桌面(屏保/锁屏)，直接跳过；长期解法：把 Windows 屏保设为「(无)」——pwsh -File tools\unarm-screensaver.ps1 -Apply，或 设置→个性化→锁屏界面→屏幕保护程序→(无)；夜间保持解锁也行"
-        if ($svTxt) { $detail += "。$svTxt" }
-        return @{ Status = 'not-started'; Duration = 0; Detail = $detail }
-    }
-    $ark = $Decision
-    $arkName = [System.IO.Path]::GetFileNameWithoutExtension($S.paths.arknightsExe)
-    Invoke-GdTakeover -S $S -Names @((Get-MaaPaths -S $S).Name, $arkName) -Label '方舟/MAA'
-    $maaCfg = Set-MaaDailyConfig -S $S -Decision $ark -Apply
-    $maaCfg.Changes | ForEach-Object { Write-GdLog "  MAA：$_" }
-    if ($ark.Mode -eq 'event-pending') {
-        # 第 1 刀(10-12)改口：这一档不再等于"跳过理智作战"——判定层现在把 ClearSanity 留在真，Fight 照跑、
-        # 只是换成长草套餐(理智不空放)。旧那句"你自己打过之后去敲活动确认开关"的话术已随之退场
-        # (那个开关从入口参数里删了，所以这里也不写它的参数名 —— tools\test-lib.ps1 的 [t1d] 会按
-        #  "入口脚本名 + 参数"的字面形状扫全仓，注释里写它一样会红)。
-        Write-GdLog "本轮不打活动图(今天试打被 MAA 剪掉，判为还没打通) → 理智照烧、刷长草计划；你打通后下一轮自动切回活动图" -Level WARN
-    }
-    $run = {
-        # 拉端游必须在 $run 里面：重试前那句 Stop-MaaAndGame 是把端游和 MAA 一起关掉的，
-        # 放在外面的话第二次只有 MAA 起来了、游戏没起来 → MAA 只会报"未找到窗口"，白烧一轮。
-        # (2026-09-24 06:00 那一轮就是这么栽的：首轮卡在端游登录界面被判 stalled，重试直接 not-started。)
-        if ($S.runtime.launchArkFromHelper -ne $false) {
-            if (-not (Start-GdArkClient -S $S)) {
-                Write-GdLog '端游窗口没等到：MAA 大概会报"未找到窗口"，仍继续(会按 not-started 早退)' -Level WARN
-            }
-        }
-        Invoke-MaaRun -S $S -ExpectedChains $maaCfg.ExpectedChains
-    }
-    $r = Invoke-GdStep -Name '方舟' -Body $run
-    <#
-      ===== 批次 8：重试分流改问 decide-daily-retry(Orchestration.cs，-Game ark) =====
-      跳过清单、retryOnce 合取与两句文案住在 C#；本壳只回放日志 + 落地"活"(收尾/重跑)。
-      旧两分支逐行 # 前缀冻结在下方(test-ark 钉 `Status -notin @(…)` 字面锚；行号不引，取证见 §11.92 ⑥)。
-    #>
-    #     if ($r.Status -notin @('ok', 'not-started', 'unknown-format') -and $S.runtime.retryOnce) {
-    #         Write-GdLog '方舟本轮未成功 → 收尾后重试一次' -Level WARN
-    #         Stop-MaaAndGame -S $S
-    #         Start-Sleep -Seconds 25
-    #         $r = Invoke-GdStep -Name '方舟重试' -Body $run
-    #     } elseif ($r.Status -eq 'unknown-format') {
-    #         Write-GdLog '方舟日志标志一条都没认出来 → 重试同样看不懂，直接记入本轮告警(见下面的处理建议)' -Level ERROR
-    #     }
-    $d = Invoke-GdCli -Verb 'decide-daily-retry' -Body ([pscustomobject]@{
-        game      = 'ark'
-        status    = [string]$r.Status
-        retryOnce = [bool]$S.runtime.retryOnce
-    })
-    foreach ($l in @($d.Logs)) {
-        $lvl = [string]$l.Level
-        if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog ([string]$l.Text) -Level $lvl } else { Write-GdLog ([string]$l.Text) }
-    }
-    if ([bool]$d.Retryable) {
-        Stop-MaaAndGame -S $S
-        Start-Sleep -Seconds 25
-        $r = Invoke-GdStep -Name '方舟重试' -Body $run
-    }
-    <# ===== 认关止损(2026-09-28 新增，非冻结段；判定规则在 C# detect-maa-fight-skip) =====
-       09-28 06:00 实测：我们写的 StagePlan 三关确实落了盘(MAA 开机 .bak 里 farm 参数都在)，
-       但 MAA 加载时把当日不可选的关修剪出计划、剩下的也不开放 → 整条 Fight 跳过，随后照常宣布
-       「任务已全部完成」→ 判定层拿到假 ok，理智白放。三步止损：
-       认跳关(只押「关卡计划内没有当日开放的关卡」) → 剔掉补刷关重试一次(能保长草理智就保) →
-       重试仍跳则认栽：记当日标记(state\ark-fight-skip-mark.json)，当天后续轮不再前置 farm 关空试。
-       这一步在既有 decide-daily-retry 分流**之后**再判：ok 轮外层分流根本不会动，互不踩脚。 #>
-    if ($r.Status -eq 'ok') {
-        $skip = $null
-        try { $skip = Get-GdMaaFightSkip -S $S } catch { Write-GdLog "认关检查没做起来：$($_.Exception.Message)(不影响本轮)" -Level WARN }
-        if ($skip -and [bool]$skip.Skipped) {
-            $farmPlanV = Get-GdMapValue $ark 'Farm'
-            $farmStages = @(if ($farmPlanV) { foreach ($st in @(Get-GdMapValue $farmPlanV 'Stages')) { [string]$st } })
-            $planTxt = if (@($skip.Plan).Count) { (@($skip.Plan) -join ',') } else { '空' }
-            Write-GdLog "MAA 认库后本轮的关计划实况是[$planTxt]并判「关卡计划内没有当日开放的关卡」(证据：$(@($skip.Evidence) -join ' / ')) → 整条 Fight 被跳过，这个 ok 是假的" -Level WARN
-            $leanStages = @(foreach ($st in ($ark.Stage -split '[,，、;；\s]+')) { if ($st -and ($farmStages -notcontains [string]$st)) { [string]$st } })
-            $recovered = $false
-            $giveUp = $false
-            if ($farmStages.Count -gt 0 -and $leanStages.Count -gt 0) {
-                Write-GdLog "剔掉补刷关($($farmStages -join ','))后还剩 $($leanStages -join ',') → 收尾后按纯长草计划重试一次(保长草理智)" -Level WARN
-                Stop-MaaAndGame -S $S
-                Start-Sleep -Seconds 25
-                $lean = @{
-                    Source = 'auto'; Mode = [string]$ark.Mode; Stage = ($leanStages -join ',')
-                    ClearSanity = [bool]$ark.ClearSanity
-                    EventKey = $ark.EventKey; EventTip = $ark.EventTip; StageHint = $ark.StageHint
-                }
-                $maaCfg2 = Set-MaaDailyConfig -S $S -Decision $lean -Apply
-                $maaCfg2.Changes | ForEach-Object { Write-GdLog "  MAA(剔关重试)：$_" }
-                $runLean = {
-                    # 与 $run 同款：拉端游必须在体重试里，剔关重试同样是"关干净重开"的一轮。
-                    if ($S.runtime.launchArkFromHelper -ne $false) {
-                        if (-not (Start-GdArkClient -S $S)) { Write-GdLog '端游窗口没等到：MAA 大概会报"未找到窗口"，仍继续' -Level WARN }
-                    }
-                    Invoke-MaaRun -S $S -ExpectedChains $maaCfg2.ExpectedChains
-                }
-                $r2 = Invoke-GdStep -Name '方舟剔关重试' -Body $runLean
-                $r = $r2
-                $skip2 = $null
-                try { $skip2 = Get-GdMaaFightSkip -S $S } catch { Write-GdLog "第二次认关检查没做起来：$($_.Exception.Message)" -Level WARN }
-                if ($skip2 -and [bool]$skip2.Skipped) {
-                    $giveUp = $true
-                    Write-GdLog "剔关重试仍被 MAA 判全关(计划实况：$(if (@($skip2.Plan).Count) { (@($skip2.Plan) -join ',') } else { '空' })) → 今日理智关卡确认全关" -Level WARN
-                } elseif ($r2.Status -eq 'ok') {
-                    $recovered = $true
-                    Write-GdLog "剔关重跑后 Fight 正常打了，长草理智保住 → 今天不记认栽标记" -Level OK
-                } else {
-                    Write-GdLog "剔关重试本轮以 $($r2.Status) 收场，说不死关卡开没开 → 不记认栽标记(明天照常)" -Level WARN
-                }
-            } else {
-                $giveUp = $true
-                Write-GdLog '本轮没有可剔的补刷关(或剔完计划就空了) → 直接认今日全关' -Level WARN
-            }
-            if ($giveUp) {
-                $mk = Set-GdArkFightSkipMark -S $S -Stages @((($ark.Stage -split ',') | Where-Object { $_ })) -Reason 'MAA 判「关卡计划内没有当日开放的关卡」'
-                Write-GdLog "已记今日认栽标记($($mk.Date))：当天后续轮不再前置补刷关；若游戏里确有当日开放的图，可 -FarmArk 专用轮指定开放关补刷(专用轮不吃这条防线)" -Level WARN
-                $tailNote = 'Fight 被 MAA 判全关(认栽，已记当日标记)'
-                if ($r.Detail) { $r.Detail = "$($r.Detail)；$tailNote" } else { $r.Detail = $tailNote }
-            }
-        }
-    }
-    if ($r.Status -eq 'not-started' -and -not (Test-GdAdmin)) {
-        Write-GdLog '方舟这一路要管理员权限：去掉 -NoElevate(或用 run-daily.cmd / 计划任务)重跑即可自动提权' -Level ERROR
-    }
-    Stop-MaaAndGame -S $S
-    # 掉落记账放在收尾之后：MAA 关门前还会往 gui.log 补写最后的掉落统计行，偏移记在账本里，
-    # 这一轮漏几行下一轮也会补上 —— 所以这段抛任何错都只 WARN，绝不影响本轮结论。
-    try {
-        $bn = Update-GdArkFarmLedger -S $S
-        if ($bn) { Write-GdLog "掉落记账：$bn" }
-    } catch { Write-GdLog "掉落记账没做起来：$($_.Exception.Message)(不影响本轮)" -Level WARN }
-    # B 档观测(#21，2026-10-05)：把本轮 MAA 的关卡开放读数抄进观测账本，供人攒满一周后看账成案
-    # (planByWeekday 提案必须人工确认) —— 这段只读日志+写账，不改任何配置、不影响本轮结论。
-    try {
-        $obs = Get-GdMaaStageObservation -S $S
-        $on = Update-GdArkStageObs -S $S -Obs $obs
-        if ($on) { Write-GdLog "关卡开放观测已记账(账本现 $on 条)" -Level OK }
-    } catch { Write-GdLog "关卡开放观测没做起来：$($_.Exception.Message)(不影响本轮)" -Level WARN }
-    # 每轮自证活动图(第 1 刀，2026-10-12)不在这里：采集挂在 lib\ark-module.ps1 的 Run 钩子上，
-    # 旧链与换头执行器共用那一处；判据与"结论不落地"的无效形状全住 C#(decide-ark-event-probe)。
-    return $r
-}
+# ===== R3③ 换头 → 单臂(2026-10-24 刀③)：PS 回退臂整段出仓 =====
+# Invoke-GdArkDailyLegacy(连同批次 8 那两枚 # 前缀冻结的旧分流)已移出仓库——这是决定不是疏漏：
+# 判据一枚没动，跳过清单与两句文案在 tools\panel-cs\Orchestration.cs 的 decide-daily-retry(-Game ark)，
+# 链体的编排与重试落地在 tools\rustcore\src\main.rs 的 ark_daily_chain，逐字转写的基线仍取钉位 251bd3c
+# 那份，删前最后一帧的原身在钉位 5bc83b1 的 lib\ark-daily.ps1 里(那一帧本文件的 blob 一字未改)。
+# 行为对面：tools\rustcore\probe-arkdrive-rust-golden.ps1 的 retry-stalled／desk-empty 两档带两格行为
+# 判据(C-retry-relaunch／C-desk-empty-vs-early)——补尺先于删件，因为等值面只拍"两代同不同"。
 
-# ===== R3③ 换头(2026-10-06)：调度器 + Rust 驱动档 executor =====
-# Start-GdArkDaily 从"整函数"变成**调度器**：开关(Test-GdRustDailyPath，住 common.ps1，
-# 三把判据见 docs\r0-adrs.md §5.4)拨开 → Invoke-GdArkDailyRust 起内置件 gdcore.exe 走换头
-# 重入协议(驱动档 --drive-ark-daily：问-答-重放)；拨关(默认) → 原身逐字保留为
-# Invoke-GdArkDailyLegacy，行为一字不变。接线点只此一处(ADR §5.4)：改协议先改 main.rs
-# 再复拍三门，不要在这里加规则。
 function Start-GdArkDaily {
-    <# 调度器：两分支返回值同形(hashtable @{Status;Detail;Duration?})，调用方无感 #>
+    <# 单臂调度器：直接走核内驱动档 executor；返回值形同旧 hashtable @{Status;Detail;Duration?}，调用方无感。
+       兜底臂已随 10-24 刀③ 出仓，没有 PS 退路——内置件不在场时 Get-GdArkDriveExe 交回空串，由
+       Invoke-GdArkDailyRust 那侧当场抛错。那把换头主闸 Test-GdRustDailyPath 本体已随本批 刀④ 出仓。 #>
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Decision)
-    if (Test-GdRustDailyPath -S $S) { return Invoke-GdArkDailyRust -S $S -Decision $Decision }
-    return Invoke-GdArkDailyLegacy -S $S -Decision $Decision
+    return Invoke-GdArkDailyRust -S $S -Decision $Decision
 }
 
 function Get-GdArkDriveExe {
     <# 内置件 gdcore.exe 的候选序：出货树形态(tools\rustcore\gdcore.exe，重打 exe 后随包走) →
        cargo 形态(tools\rustcore\target\release\gdcore.exe，开发树直跑)。两者都不在返回 ''，
-       由调用方按"没有就当场报错"处理 —— 这条只在开关拨开时才被点到，默认档永不触。 #>
+       由调用方按"没有就当场报错"处理 —— 本臂自 10-24 刀③ 起是唯一路，不再"默认档永不触"。 #>
     $cands = @(
         (Join-Path $global:GD.Root 'tools\rustcore\gdcore.exe'),
         (Join-Path $global:GD.Root 'tools\rustcore\target\release\gdcore.exe')
@@ -307,7 +151,7 @@ function Invoke-GdArkDailyRust {
     param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Decision)
 
     $exe = Get-GdArkDriveExe
-    if (-not $exe) { throw 'R3③ 换头拨开了但找不到内置件 gdcore.exe —— 先跑 tools\rustcore\build.ps1(或重打 exe)再试' }
+    if (-not $exe) { throw 'R3③ 这一路只剩核内驱动档了，但找不到内置件 gdcore.exe —— 先跑 tools\rustcore\build.ps1(或重打 exe)再试(兜底臂已随 10-24 刀③ 出仓，没有 PS 退路)' }
     $panel = Get-GdCliExe
 
     # 一次日常 = 一本账：ctx 换了 journal 就不能复用(内核按 init 与 ctx 全等校验)，所以每次开头清场重起。

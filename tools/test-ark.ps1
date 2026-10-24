@@ -186,58 +186,40 @@ Write-Host "  提示：Store 版 pwsh 提权会走 cmd.exe 载体(临时批处�
 
 Show-GdCommonTailChecks
 
-# 2026-09-23 内部拆分：重试策略跟着"跑一轮"一起搬进了 lib\ark-daily.ps1，入口脚本只剩参数分发。
-# 断言对象随之换文件，断言内容(那条跳过清单)一个字没改。
-$arkDaily = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\ark-daily.ps1') -Raw -Encoding utf8
-Check '方舟重试也会跳过 unknown-format' ($arkDaily -match "Status -notin @\('ok', 'not-started', 'unknown-format'\)")
-# 2026-09-24 06:00 那一轮暴露的坑：重试前先 Stop-MaaAndGame(端游也一起关掉)，而"拉端游"那句写在重试闭包外面
-# → 重试那轮只有 MAA 起来了、游戏没起来，MAA 只会报"未找到窗口"，白烧一轮。
-# 这条是行为测试而不是文本比对：把 Start-GdArkDaily 用到的那几个动作换成假函数(定义在本函数局部作用域，
-# 按 PowerShell 的动态作用域会盖掉脚本级同名函数)，数一遍"跑两轮"各拉了几次端游、跑了几次 MAA。
+# 2026-09-23 内部拆分：重试策略跟着"跑一轮"一起搬进了 lib\ark-daily.ps1，入口脚本只剩参数分发；
+# 10-24 刀③ 把 ark 那枚 PS 回退臂整段出仓后，这里的桌子跟着换(与 test-r1999 在 刀② 的同形改口同一条纪律)：
+# 跳过清单的家在 tools\panel-cs\Orchestration.cs 的 DailyRetry ark 支(verb decide-daily-retry，-Game ark)，
+# "重试轮必须重开端游"与"读不到桌面名不许杀正常路"那两条行为的家在 tools\rustcore\probe-arkdrive-rust-golden.ps1
+# 的 retry-stalled／desk-empty 两档——刀③-补尺(5bc83b1)先把那两格立起来，本批才删下面那两枚假函数探针：
+# 回退臂出仓后 Start-GdArkDaily 只剩"起内置件走核内驱动档"一条路，探针要桩掉的那条 PS 链已经没有家。
+# 断言内容一个字没改——三枚状态名一枚不许少，正则取空窗一律红(fail-closed，不是"读不到就放过")。
+$orchArkCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Orchestration.cs') -Raw -Encoding utf8
+$arkRetryWin = [regex]::Match($orchArkCs, '(?s)if \(EqS\(game, "ark"\)\)(?<win>.*?)else if \(EqS\(game, "r1999"\)\)').Groups['win'].Value
+Check '方舟重试也会跳过 unknown-format' (($arkRetryWin -match '"ok"') -and ($arkRetryWin -match '"not-started"') -and ($arkRetryWin -match '"unknown-format"') -and ($arkRetryWin -match '收尾后重试一次'))
 . (Join-Path $PSScriptRoot '..\lib\ark-daily.ps1')   # 编排层不在 test-lib 的点用清单里(test-lib 只点判定层+两个助手库)，这条要真调它
-function Invoke-GdArkRetryProbe {
-    $c = @{ launches = 0; maaRuns = 0; stops = 0; i = 0; statuses = @('stalled', 'ok') }
-    function Start-Sleep { param([Parameter(ValueFromRemainingArguments)]$Rest) }   # 重试前真会睡 25 秒，自检里跳掉
-    function Get-MaaPaths { param($S) return [pscustomobject]@{ Name = 'MAA' } }
-    function Invoke-GdTakeover { param($S, $Names, $Label) }
-    function Set-MaaDailyConfig { param($S, $Decision, [switch]$Apply) return [pscustomobject]@{ Changes = @(); ExpectedChains = @('StartUp') } }
-    function Start-GdArkClient { param($S) $c.launches++; return $true }
-    function Stop-MaaAndGame { param($S) $c.stops++ }
-    function Invoke-MaaRun {
-        param($S, $ExpectedChains)
-        $c.maaRuns++; $st = $c.statuses[$c.i]; $c.i++
-        return @{ Status = $st; Detail = "假状态 $st"; Duration = 1 }
-    }
-    function Get-GdInputDesktopName { return 'Default' }   # 起跑前置判定不许押机器现场：本机挂着屏保时这里会返回 Screen-saver，探针会被提前退掉判成"拉端游 0 次"的假红
-    function Test-GdRustDailyPath { param($S) return $false }   # R3③ 换头：自检只走 legacy 路(开关拼法、内置件在场与否都是机器现场状态，不许把套件带红)
-    Start-GdArkDaily -S $S -Decision ([pscustomobject]@{ Mode = 'idle'; Stage = 'CE-5,LS-5'; ClearSanity = $true; Reason = '假判定' }) | Out-Null
-    return [pscustomobject]@{ Launches = $c.launches; MaaRuns = $c.maaRuns; Stops = $c.stops }
+# 2026-09-24 06:00 那一坑(重试前先 Stop-MaaAndGame 把端游也关了，而"拉端游"那句写在重试闭包外面 ⇒ 重试那轮
+# 只有 MAA 起来、游戏没起来，白烧一轮)与 2026-09-26 那两条桌面分支(屏保占住 → not-started 早退、一个端游不拉；
+# 桌面名读不到 '' = 不知道 → 不许据此杀正常路)，判据已由 tools\rustcore\probe-arkdrive-rust-golden.ps1 的
+# retry-stalled／desk-empty 两档接手(5bc83b1)：那里 old 侧连壳带核一起取自基线 commit a9dea09、new 侧用现帧，
+# 两代各跑各的链体与真 executor，两侧各拍"拉端游两次且 stop#1<launch#2<run#2"与"读不到桌面名仍照常拉起"——
+# 本文件那两枚假函数探针只能拍 PS 一代，等值面拍不到"两代一起漏一次 launch"，所以补尺先于删件、删的是臂不是判据。
+# 这里自此只留一格"那把尺还在不在"：那一格被人删掉时本套件当场红，而不是静默少一条判据。
+# 2026-10-24 推仓 51：这一格读的是门件本体，而 probe-arkdrive-rust-golden.ps1 按口径不出仓(开发态伴生件——publish-split
+# 只放 tools\rustcore 的 build.ps1/Cargo*/src 进导出树，等值对拍门要 git 工作树与双代 gdcore，玩家树里既没那把尺也没
+# 造尺的料)。于是本套件有两种落点、对象不同，分两档各判各的(与验收链"内置件在场/不在场"同一把尺)：尺在＝照咬四枚符号
+# (出货树若哪天带上门件也走这一档)；尺不在但 docs\rust-core-plan.md 在＝这是工作树，尺被人删/改名＝当场红，一个字没松；
+# 尺与 docs 都不在＝公开出货树形态，交回一行「跳过」的读数而不是假绿。松的仍只是"判的对象"，判据没放宽。
+$arkDriveGateFile = Join-Path $PSScriptRoot 'rustcore\probe-arkdrive-rust-golden.ps1'
+if (Test-Path -LiteralPath $arkDriveGateFile) {
+    $arkDriveGate = Get-Content -LiteralPath $arkDriveGateFile -Raw -Encoding utf8
+    Check 'arkdrive 门里 retry-stalled／desk-empty 两档与两格行为判据在场' (
+        ($arkDriveGate -match 'retry-stalled') -and ($arkDriveGate -match 'desk-empty') -and
+        ($arkDriveGate -match 'C-retry-relaunch') -and ($arkDriveGate -match 'C-desk-empty-vs-early'))
+} elseif (Test-Path -LiteralPath (Join-Path $PSScriptRoot '..\docs\rust-core-plan.md')) {
+    Check 'arkdrive 门里 retry-stalled／desk-empty 两档与两格行为判据在场' $false '工作树里这把尺不见了(刀③-补尺 5bc83b1 立的门件被删/改名)'
+} else {
+    Write-Host '  [跳过] arkdrive 门件：公开出货树按口径不带 probe-*(docs\ 也不在＝这不是工作树)' -ForegroundColor Yellow
 }
-$probe = Invoke-GdArkRetryProbe
-Check '首轮 stalled 触发重试时，端游会被重新拉起(拉端游写在 $run 里，重试不再是光启动 MAA)' (
-    $probe.MaaRuns -eq 2 -and $probe.Launches -eq 2) "拉端游 $($probe.Launches) 次 / 跑 MAA $($probe.MaaRuns) 次 / 收尾 $($probe.Stops) 次"
-# 2026-09-26 起跑输入桌面判定的两条分支(同样全靠假函数，不看本机真桌面)：桌面被屏保/锁屏占住 → 早退 not-started、一次端游都不拉；
-# 桌面名读不到('' = 不知道) → 不许据此杀正常路。
-function Invoke-GdDeskGateProbe([string]$FakeDesk) {
-    $c = @{ launches = 0; desk = $FakeDesk }
-    function Start-Sleep { param([Parameter(ValueFromRemainingArguments)]$Rest) }
-    function Get-MaaPaths { param($S) return [pscustomobject]@{ Name = 'MAA' } }
-    function Invoke-GdTakeover { param($S, $Names, $Label) }
-    function Set-MaaDailyConfig { param($S, $Decision, [switch]$Apply) return [pscustomobject]@{ Changes = @(); ExpectedChains = @('StartUp') } }
-    function Start-GdArkClient { param($S) $c.launches++; return $true }
-    function Stop-MaaAndGame { param($S) }
-    function Invoke-MaaRun { param($S, $ExpectedChains) return @{ Status = 'ok'; Detail = '假ok'; Duration = 1 } }
-    function Get-GdInputDesktopName { return $c.desk }
-    function Test-GdRustDailyPath { param($S) return $false }   # R3③ 换头：自检只走 legacy 路(开关拼法、内置件在场与否都是机器现场状态，不许把套件带红)
-    $all = Start-GdArkDaily -S $S -Decision ([pscustomobject]@{ Mode = 'idle'; Stage = 'CE-5'; ClearSanity = $true; Reason = '假判定' })
-    $r = @($all | Where-Object { $_ -is [System.Collections.IDictionary] }) | Select-Object -First 1
-    return [pscustomobject]@{ Launches = $c.launches; Status = $r.Status; Detail = $r.Detail }
-}
-$gate = Invoke-GdDeskGateProbe -FakeDesk 'Screen-saver'
-Check '输入桌面被屏保占住 → not-started 早退，一个端游不拉、Detail 带桌面名' (
-    $gate.Launches -eq 0 -and $gate.Status -eq 'not-started' -and $gate.Detail -match 'Screen-saver') "拉端游 $($gate.Launches) 次 / 状态=$($gate.Status)"
-$gate2 = Invoke-GdDeskGateProbe -FakeDesk ''
-Check '读不到输入桌面名(空串=不知道) → 不早退，照常拉端游跑完' ($gate2.Launches -ge 1) "拉端游 $($gate2.Launches) 次"
 $maaLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\maa.ps1') -Raw -Encoding utf8
 Check 'MAA 侧也有 unknown-format 判定(日志在涨却零标志)' ($maaLib -match "Status = 'unknown-format'")
 

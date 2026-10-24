@@ -60,7 +60,7 @@ Register-GdModule ([pscustomobject]@{
                 param($S, $Decision)
                 $r = Start-GdArkDaily -S $S -Decision $Decision
                 # 每轮自证活动图(第 1 刀，2026-10-12)：采集挂在**这里**而不是两条链体各挂一处——
-                # 旧链(Invoke-GdArkDailyLegacy)与换头执行器(Invoke-GdArkDailyRust)共用这一个入口，
+                # 调度器自 10-24 刀③ 起是单臂(只剩换头执行器 Invoke-GdArkDailyRust)，共用这一个入口，
                 # 判据只写一遍；写在链体内会让 ark 那两枚 golden 门的调用序多出一枚纯只读记号
                 # (Get-GdMaaStageObservation 桩往投影里追加 OBS)，而这一步不改变任何链体行为(它只写
                 # state\ark-event-probe.json 给下一轮的判定层)，本就不属门的拍面。
