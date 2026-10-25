@@ -268,7 +268,7 @@ function Invoke-GdArkDailyRust {
             $seq = [int]$envelope.seq
             $act = [string]$envelope.action
             $prm = $envelope.params
-            if ($act -notin @('desk', 'svdetail', 'takeover', 'cfg', 'entryverb', 'launch', 'stop', 'sleep', 'skip', 'mark', 'ledger', 'obs', 'obsrec', 'admin')) {
+            if ($act -notin @('desk', 'svdetail', 'takeover', 'cfg', 'entryverb', 'launch', 'stop', 'sleep', 'skip', 'ledger', 'obs')) {
                 # 白名单之外直接抛(绕开下面的动作 catch)：不认识的动作 = 协议不同源，不许被当成"动作失败"混过去
                 throw "R3③ 换头：收到不认识的动作 '$act'(seq=$seq) —— 先改 main.rs 再改这里，不许放行"
             }
@@ -322,14 +322,14 @@ function Invoke-GdArkDailyRust {
                             $data = [pscustomobject]@{ skipped = [bool]$sv.Skipped; plan = @($sv.Plan); evidence = @($sv.Evidence) }
                         }
                     }
-                    'mark' {
-                        $mk = Set-GdArkFightSkipMark -S $S -Stages @($prm.stages) -Reason ([string]$prm.reason)
-                        $data = [string]$mk.Date
-                    }
+                    # 10-25 甲档刀②：'mark'／'obsrec'／'admin' 三 case 连同白名单里那三枚 token 一起删净(双删，口径与
+                    # 上面那条 'run' 一字同)——这枚名单的事实源是 probe-arkdrive-rust-golden:753 的 $moved = mark/obsrec/
+                    # admin/run，门头注 :752 逐字在册「old 侧仍出 ask、new 侧在核内做」；核内 drive_mark／drive_obsrec／
+                    # drive_is_admin 早已真做(B-1a)，Rust 驱动档不再问这三枚(实拍：本门 C-asks-removed 格逐场景验过 new 侧
+                    # 一枚 ask 都不出)。桩面留一 case 就等于给"分派漏改"留后门，双删才让它在白名单处当场抛。
+                    # 被删的只是答臂：Test-GdAdmin 真身另有生产读者(install-task.ps1:40／vision-rescue.ps1:328)，一枚没动。
                     'ledger' { $data = [string](Update-GdArkFarmLedger -S $S) }
                     'obs' { $data = Get-GdMaaStageObservation -S $S }
-                    'obsrec' { $data = Update-GdArkStageObs -S $S -Obs $prm }
-                    'admin' { $data = [bool](Test-GdAdmin) }
                 }
             } catch {
                 $ok = $false

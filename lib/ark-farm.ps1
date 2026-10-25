@@ -29,18 +29,10 @@ function Get-GdArkFarmDropTablePath { Join-Path $global:GD.State 'ark-droptable.
 function Get-GdArkFarmDropsPath    { Join-Path $global:GD.State 'ark-farm-drops.json' }
 function Get-GdArkFightSkipMarkPath { Join-Path $global:GD.State 'ark-fight-skip-mark.json' }
 
-function Set-GdArkFightSkipMark {
-    <# 「今日关卡全关」认栽标记(2026-09-28 认关止损)：MAA 判全关、剔关重试也救不回来时写当天日期。
-       后续同日的轮读到它就不再前置补刷关(不再空试一轮)；隔天日期不符自然失效，不需要谁去清。 #>
-    param([Parameter(Mandatory)]$S, [array]$Stages = @(), [string]$Reason = '')
-    $obj = [ordered]@{
-        Date   = (Get-Date).ToString('yyyy-MM-dd')
-        Stages = @($Stages)
-        Reason = $Reason
-    }
-    Write-GdJson -Path (Get-GdArkFightSkipMarkPath) -Object $obj
-    return $obj
-}
+# Set-GdArkFightSkipMark 已删(10-25 甲档刀②，docs\rust-core-plan.md §11.134)：lib\ark-daily.ps1 里那枚 'mark'
+# 问槽与白名单 token 同批双删(口径同 B-2c③ 那条 'run')，核内等价体在 tools\rustcore\src\main.rs::drive_mark；
+# probe-arkdrive-rust-golden 的 old／new 两代自同批刀① 起咬该门自带的 a9dea09 帧逐字副本 ⇒ 现树再无读者。
+# 写侧出仓、读侧照旧活：Test-GdArkFightSkipMarkToday 与 Get-GdArkFightSkipMarkPath 仍是 PS 轮读当天认栽标记那一路。
 
 function Test-GdArkFightSkipMarkToday {
     <# 只读：今天是否已经认栽。文件不在/读坏了都答 $false —— 认栽防线宁可失效也不拦正常轮。 #>
@@ -52,35 +44,11 @@ function Test-GdArkFightSkipMarkToday {
     return (([string]$m.Date) -eq (Get-Date).ToString('yyyy-MM-dd'))
 }
 
-function Get-GdArkStageObsPath { Join-Path $global:GD.State 'ark-stage-weekday-obs.json' }
-
-function Update-GdArkStageObs {
-    <# B 档 #21 观测账本(2026-10-05 新增)：把每轮的关卡开放读数(Get-GdMaaStageObservation 的信封)追加进账。
-       它**只记读数、绝不改配置** —— 成案(往 planByWeekday 写建议)是攒满一周后由人在管家里一键确认的事。
-       口径：Found=false 的轮(这一路没递 Fight 任务)不记；06:00/18:00 两班各记一条，同日形状照样都留
-       (两班被剪的名单可能不同，那本身就是证据)；上限最近 60 条老的滑掉；读坏当空账不拦正常轮。 #>
-    param([Parameter(Mandatory)]$S, $Obs)
-    if (-not $Obs -or -not $Obs.Found) { return $null }
-    $p = Get-GdArkStageObsPath
-    $records = @()
-    if (Test-Path -LiteralPath $p) {
-        try { $records = @((Read-GdJson -Path $p).Records) } catch { $records = @() }
-    }
-    $dow = [int](Get-Date ([string]$Obs.Date)).DayOfWeek
-    if ($dow -eq 0) { $dow = 7 }   # 项目口径周一=1…周日=7(PlanByWeekday 提案与 Decisions 侧一致)
-    $records += [ordered]@{
-        Date       = [string]$Obs.Date
-        Dow        = $dow
-        Stage      = [string]$Obs.Stage
-        LastBattle = [bool]$Obs.LastBattle
-        SawGuiPlan = [bool]$Obs.SawGuiPlan
-        Survivors  = @($Obs.Survivors | ForEach-Object { [string]$_ })
-        Selected   = [string]$Obs.Selected
-    }
-    if ($records.Count -gt 60) { $records = @($records[($records.Count - 60)..($records.Count - 1)]) }
-    Write-GdJson -Path $p -Object ([ordered]@{ Records = $records })
-    return $records.Count
-}
+# Get-GdArkStageObsPath 与 Update-GdArkStageObs 已删(10-25 甲档刀②，docs\rust-core-plan.md §11.134)：这两枚是
+# 上面那枚 mark 的同族——lib\ark-daily.ps1 里 'obsrec' 问槽与白名单 token 同批双删，核内等价体在
+# tools\rustcore\src\main.rs::drive_obsrec(账本路径字面、Found=false 不记、周一=1…周日=7、60 条滑窗与
+# "读坏当空账"四样都在核内逐句照旧)；probe-arkdrive-rust-golden 两代咬该门自带的 a9dea09 帧逐字副本 ⇒ 现树再无读者。
+# 同族的 'obs'(Get-GdMaaStageObservation，在 lib\maa.ps1)没搬、问槽照旧活；state\ark-stage-weekday-obs.json 的写手自此只有核。
 
 function Get-GdArkItemMaps {
     <# MAA 自带 resource/item_index.json → 材料名↔代号两张表(进程内缓存)。
