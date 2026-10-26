@@ -6,7 +6,7 @@
 #
 # ── 冻结(2026-09-26，PS→C# 批次 2)── Show-GdArkQueueState 的"读 configuration.json + 行式"本体
 # 已迁 tools\panel-cs\Detect.cs(verb：maa-queue-lines)，这里只剩转发壳和两种显示行为
-# (路径没填→黄字 / 读取失败→红字)。改队列行文案 = 改 C# + 跑 probe-status-detect-golden 对拍。
+# (路径没填→黄字 / 读取失败→红字)。改队列行文案 = 改 C# + 跑 `panel-cs --statetest`(原对拍门甲档第十刀退役)。
 # EnvRows 的 [ordered] 形状、进程名清单仍故意留 PS(test-modules 按类型断言；判定本体批次 1 已在 Decisions.cs)。
 
 function Get-GdArkEnvRows {

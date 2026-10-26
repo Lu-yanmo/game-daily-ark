@@ -6,7 +6,7 @@
 #   Get-MaaAsstStuckHint  → verb parse-asst-hint(线索话术整句在 C#)
 #   Set-MaaDailyConfig 的规则段 → verb plan-maa-queue(队列开关/关卡校验/farm 两档九项/ExpectedChains
 #       的 Select-Object -Unique 大小写敏感去重，全部在 C#；本壳保留：在跑检查、读写盘、备份、回读核对、日志染色)
-# 所以：改规则/文案请改 Processes.cs 并跑 tools\probe-process-golden.ps1 对拍，不要在这里加规则。
+# 所以：改规则/文案请改 Processes.cs 并跑 panel-cs --proctest 对真值，不要在这里加规则。
 # 故意留在 PS 侧的：Get-MaaPaths(读配置)、Invoke-MaaRun/Start-GdArkClient/Stop-MaaAndGame
 # (起进程、轮询、视觉兜底、进程树收尾 —— 归批次 5 编排层)。
 # ──────────────────────────────────────────────────────────────────────────────
@@ -16,14 +16,14 @@
 # marker/logChars 计数)已迁到 tools\panel-cs\Orchestration.cs(verb：parse-maa-gui-lines)。
 # 监控循环本体(Start-Process/轮询/兜底/asst.log 线索/早退判定)仍留本文件 —— 那是"活段"，后续批次再谈。
 # test-ark 钉着本文件必须原样存在 `Status = 'unknown-format'` 字面(unknown-format 早退分支故意留壳)，
-# 改壳时别把它"顺手搬走"。改分类规则请改 C# 并跑 tools\probe-orch-golden.ps1 对拍。
+# 改壳时别把它"顺手搬走"。改分类规则请改 C# 并跑 tools\panel-cs\build.ps1 -Verify(orchtest)。
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # ── 追加冻结(2026-09-27，PS→C# 批次 7 —— 活段第一刀)────────────────────────────
 # Invoke-MaaRun 每 tick 的早退判据梯(读不懂标志/没起来/点了没动/队列跑空/停滞告警/超时/静默/
 #     进程探活/跑齐收尾 —— 十档的顺序、阈值、Detail 整句、兜底预算扣数、RecordTag 错位一格)
 #     已迁到 tools\panel-cs\RunLoops.cs(verb：decide-maa-run-tick)。口径见 docs\ps-migration-live-caliber.md，
-#     剧本对拍 = tools\probe-live-golden.ps1(基线钉 c498da0)。
+#     剧本对拍 = tools\panel-cs\build.ps1 -Verify 的 --looptest(基线钉 c498da0；原 live 门 10-26 摘件)。
 # 本壳留下的正是口径文档划给"活"的部分：while+sleep、起 MAA、tail 轮询、真抢前台/真兜底/真记账、挂钟收尾。
 # 壳里那三段"执行块"是 effect 的落地处，也兼任 test-ark 的锚(记账三笔、档位顺序)——
 #     判据唯一事实源在 C#：改规则/文案改 RunLoops.cs 并复拍，别再往这里加 if。
@@ -40,7 +40,7 @@
 # 壳保留的现场量：tail 轮询、markers/logChars += 计数、$completed/$benignSeen 两个 hashtable 的
 #     重建、挂钟 $dur 与 Sort-Object 链表。旧两段逐行 # 冻在原位(`任务已完成，但出现错误`、
 #     `$drained = $true` 这些 test-ark 字面锚就在冻结行里，substring 照命中，别删)。
-# 改话术/计数规则改 RunLoops.cs 并复拍 tools\probe-live-golden.ps1(基线仍钉 c498da0)。
+# 改话术/计数规则改 RunLoops.cs 并复跑 panel-cs --looptest(基线仍钉 c498da0；原 live 门 10-26 摘件)。
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Get-MaaPaths {
@@ -294,7 +294,7 @@ function Invoke-MaaRun {
             $seen += $tail.Text
             <# 批次 5：这段"每行是什么标志"的分类规则在 C#(parse-maa-gui-lines)，
                壳只把事件按行序回灌成本轮状态并打日志 —— 判定顺序/清洗/计数语义逐字对齐旧实现，
-               改规则去改 Orchestration.cs 并跑 tools\probe-orch-golden.ps1。 #>
+               改规则去改 Orchestration.cs 并跑 tools\panel-cs\build.ps1 -Verify(orchtest)。 #>
             $g = Invoke-GdCli -Verb 'parse-maa-gui-lines' -Body ([pscustomobject]@{
                 text = $tail.Text
                 benign = @($S.runtime.benignMaaErrors)

@@ -15,7 +15,7 @@
 # ── 冻结(2026-09-26，PS→C# 批次 4)────────────────────────────────────────────
 # 本文件只迁走一段：Get-GdArkDesktopState 的**文案拼装段**(桌面名三分支、前台归属、窗口状态、
 # 光标、'；'拼串与 Locked 的"不知道"语义) → verb compose-ark-desktop-state，住在 tools\panel-cs\Vision.cs。
-# 改那句人话请改 Vision.cs 并跑 tools\probe-vision-golden.ps1 对拍，不要在这里拼文案。
+# 改那句人话请改 Vision.cs 并跑 panel-cs --visiontest 对真值，不要在这里拼文案。
 # 故意留下的：Get-GdArkWindow、Save-GdWindowShot、Send-GdArkClick、Invoke-GdArkForegroundGrab、
 # New-GdVisionTarget-ark —— 全是拍窗口/点窗口/闭包靶子的现场动作，t14 把 fnGrab 的 st.Detail 钉在
 # 函数定义文本上。P/Invoke 块(GdWin/GdRect/GdPoint)已在 B0③b(2026-09-29)逐字搬进

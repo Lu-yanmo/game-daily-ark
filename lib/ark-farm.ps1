@@ -18,7 +18,7 @@
 # 已迁到 tools\panel-cs\Orchestration.cs(verb：parse-farm-target-spec / parse-ark-drop-text /
 # resolve-ark-farm-plan；契约见 docs\ps-migration-batch0.md)。本文件留下的这三个函数只是转发壳：
 # 负责把规则需要的**值**(目标清单原始项、账本三张表、关卡校验表)组装好送进 C#，再把信封 data 交回。
-# 所以：改判表/改文案请改 C# 那份并跑 tools\probe-orch-golden.ps1 对拍，不要在这里加规则。
+# 所以：改判表/改文案请改 C# 那份并跑 tools\panel-cs\build.ps1 -Verify(orchtest)，不要在这里加规则。
 # 留在 PS 侧的是活层：Get-GdArkItemMaps/Read-GdArkFarmLedger/Update-GdArkFarmLedger(文件 IO 与记账)、
 # Sync-GdArkFarmHaveFromDepot(DepotData 纠偏)、Resolve-GdArkFarmDecision(farmAppend 开关与档位判定)、
 # Get-GdArkFarmTargetsNormalized(循环壳) —— 起进程/读盘/写盘归编排层后续批次。
