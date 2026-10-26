@@ -6,7 +6,7 @@
 # (verb：decide-ark / check-stages；契约见 docs\ps-migration-batch0.md)。
 # 本文件留下的两个函数只是转发壳：负责把规则需要的**值**(settings 块、真实 dow、ack/领空 map、
 # 入口 verb 名、关卡表)组装好送进 C#，再把信封 data 原样交回。
-# 所以：改文案/改分支请改 C# 那份并跑 tools\probe-decisions-golden.ps1 对拍，不要在这里加规则。
+# 所以：改文案/改分支请改 C# 那份，判定面的取值断言在 tools\panel-cs\Decisions.SelfTest.cs(随 build.ps1 -Verify 的 --selftest 跑)，不要在这里加规则。⚠ 2026-10-26 甲档第六刀起 `tools\probe-decisions-golden.ps1` 只剩屏保一族 14 档——它 old 侧原本点的是本件在 HEAD 里的逐字副本(两侧同一份代码、没有对面)，取证与判据见 docs\rust-core-plan.md §11.141，别把那座门的"绿"读成"这里验过"。
 # 组装哪几个值是协议的一部分：dow 的"周日=7"换算、IgnoreShopDone 与 shopDoneStopsEvent 的取图逻辑、
 # verb 名(会被 Set-GdEntryVerb 现场改) —— test-ark [t7] 依赖这些留在 PS 侧。
 # ──────────────────────────────────────────────────────────────────────────────
