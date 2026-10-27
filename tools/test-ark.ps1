@@ -196,7 +196,7 @@ Show-GdCommonTailChecks
 $orchArkCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Orchestration.cs') -Raw -Encoding utf8
 $arkRetryWin = [regex]::Match($orchArkCs, '(?s)if \(EqS\(game, "ark"\)\)(?<win>.*?)else if \(EqS\(game, "r1999"\)\)').Groups['win'].Value
 Check '方舟重试也会跳过 unknown-format' (($arkRetryWin -match '"ok"') -and ($arkRetryWin -match '"not-started"') -and ($arkRetryWin -match '"unknown-format"') -and ($arkRetryWin -match '收尾后重试一次'))
-. (Join-Path $PSScriptRoot '..\lib\ark-daily.ps1')   # 编排层不在 test-lib 的点用清单里(test-lib 只点判定层+两个助手库)，这条要真调它
+. (Join-Path $PSScriptRoot '..\lib\ark-daily.ps1')   # test-lib 现在按清单把编排层也点进来了(2026-09-26)；这条留着只为"工程被裁时这里还能自己点一次"，重复 dot 只是重新定义同名函数，无副作用
 # 2026-09-24 06:00 那一坑(重试前先 Stop-MaaAndGame 把端游也关了，而"拉端游"那句写在重试闭包外面 ⇒ 重试那轮
 # 只有 MAA 起来、游戏没起来，白烧一轮)与 2026-09-26 那两条桌面分支(屏保占住 → not-started 早退、一个端游不拉；
 # 桌面名读不到 '' = 不知道 → 不许据此杀正常路)，判据已由 tools\rustcore\probe-arkdrive-rust-golden.ps1 的
@@ -220,8 +220,12 @@ if (Test-Path -LiteralPath $arkDriveGateFile) {
 } else {
     Write-Host '  [跳过] arkdrive 门件：公开出货树按口径不带 probe-*(docs\ 也不在＝这不是工作树)' -ForegroundColor Yellow
 }
-$maaLib = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\maa.ps1') -Raw -Encoding utf8
-Check 'MAA 侧也有 unknown-format 判定(日志在涨却零标志)' ($maaLib -match "Status = 'unknown-format'")
+# 2026-10-27 甲档第四刀刀②：Invoke-MaaRun 真身(lib\maa.ps1 旧 :220-620)整函数出仓——
+# 循环骨架进核(maa_run + RealHost，tools\rustcore\src\main.rs)，判据/话术唯一事实源在
+# tools\panel-cs\RunLoops.cs／Orchestration.cs。原咬壳内字面的那批格随壳侧退役：
+# unknown-format／asstHint 停滞线索拼装／rescue 三笔账与 -Context／stuckExec 早退与 #17 早触发块序／
+# drained 认错收尾与跑空兜底块——对面金样 = panel-cs --looptest(基线钉 c498da0)与
+# tools\rustcore\probe-arkrun-rust-golden.ps1(27 档，自带 251bd3c 帧逐字副本)。
 
 Write-Host "`n[t12] asst.log 停滞线索(gui.log 静默时唯一看得见的东西)"
 # 2026-09-24 18:00 那轮：gui.log 22 分钟一个字没有，asst.log 里 StartUp@GameStart 的 exec_times 从 1 涨到 316。
@@ -244,8 +248,6 @@ Win32Controller click: (400, 300)
 '@)
 Check '刚开始的子任务不会被说成"反复点击而界面不动"' (
     $justOne -match 'RecruitBegin' -and $justOne -notmatch '反复点击') $justOne
-Check '停滞结论会把这条线索带上(不是只报"日志无输出")' (
-    ($maaLib -match 'if \(\$asstHint\) \{ \$detail \+= '))
 # 老配置没这个键也要能跑：路径有默认值，且判定不依赖它
 # 复制用 Convert-GdMapToHashtable，不要写成 "$S" + 块名 + ".PSObject.Properties" 那种属性展开：
 # 导出闸门 Test-GdTemplateCoversCode 是按 $S.<块>.<键> 的字面量扫代码的(连注释一起扫)，
@@ -375,8 +377,6 @@ if (Get-Command Get-GdVisionVerdictFromText -ErrorAction SilentlyContinue) {
     $env:DASHSCOPE_API_KEY = $savedKey
     Check '没提权或没 key → 直接放弃，不截图也不调模型' (
         -not $r1.Tried -and -not $r1.Done -and $r1.Detail -match '权限|key') $r1.Detail
-    Check '停滞判定处挂了兜底，且用 Get-Command 探路(单游戏仓库没这文件也能跑)' (
-        $maaLib -match 'Get-Command Invoke-GdVisionRescue' -and $maaLib -match 'Invoke-GdVisionRescue -S \$S')
 
     # 2026-09-26：一次问价拿到的 3 个点位在这里按把握逐个试。为什么值得逐个试 ——
     # 实测模型认得弹窗、却把 × 认成旁边那个"暂不查看"，只给一个点位时"点完没动"就只能整轮放弃；
@@ -398,12 +398,6 @@ if (Get-Command Get-GdVisionVerdictFromText -ErrorAction SilentlyContinue) {
         $fnRaw -match '自动化这边的处境' -and $fnRaw -match '200')
     Check '-Context 一路从兜底入口递到问价层，中间不断线' (
         $fnRescue -match 'Invoke-GdVisionAsk.*\$Context' -and $fnAsk -match 'Invoke-GdVisionRaw.*\$Context')
-    Check '方舟这三个兜底调用点各自往救火账本记一笔(-Game ark)' (
-        ([regex]::Matches($maaLib, 'Add-GdRescueRecord -S')).Count -eq 3 -and
-        ([regex]::Matches($maaLib, "-Game 'ark'")).Count -eq 3) $(
-        "记了 $([regex]::Matches($maaLib, 'Add-GdRescueRecord').Count) 笔")
-    Check '早触发和跑空兜底都带上下文(停滞那句说清卡在哪个子任务)' (
-        $maaLib -match '-Context \$whyStuck' -and $maaLib -match '只完成 ')
 } else {
     Check 'lib\vision-rescue.ps1 存在(方舟仓库少了它兜底就不生效)' $false '没找到 Get-GdVisionVerdictFromText'
 }
@@ -475,25 +469,6 @@ if (Get-Command Get-GdArkDesktopState -ErrorAction SilentlyContinue) {
     Check '抢前台只动窗口状态，绝不往客户区点一下，并把现场带回 Detail' (
         $fnGrab -match 'TryForeground' -and $fnGrab -notmatch 'RealClick' -and $fnGrab -notmatch 'ClickOnce' -and
         $fnGrab -match 'st\.Detail')
-    Check 'MAA 那一路的早退改按"同一子任务重试次数"判，且那句错话已经从代码里删掉' (
-        $maaLib -match '\$stuckExec -ge 60' -and $maaLib -match 'Invoke-GdArkForegroundGrab' -and
-        $maaLib -notmatch '点击通道已退化' -and $maaLib -match 'Get-Command Get-GdArkDesktopState')
-    # #17 早触发：抢前台只解决"窗口收不到输入"这一种；另一种是"模板集里没收录的界面挡在路上"，
-    # 那只能问画面。所以抢完前台立刻问一次 —— 那 60 秒本来也不会自己变好，干等 22 分钟更不值得。
-    $iStuck = $maaLib.IndexOf('if (($stuckExec -ge 60)')
-    $iDrain2 = $maaLib.IndexOf('if ($drained -and -not $allDone)')
-    $blockStuck = if ($iStuck -gt 0 -and $iDrain2 -gt $iStuck) { $maaLib.Substring($iStuck, $iDrain2 - $iStuck) } else { '' }
-    Check '抢到前台之后当场问一次画面(不再只抢不问)' (
-        $blockStuck -match 'Invoke-GdArkForegroundGrab' -and $blockStuck -match 'Invoke-GdVisionRescue') "stuck@$iStuck drain@$iDrain2"
-    Check '这一问排在"静默 22 分钟"那条判定之前(排在后面就等于没加)' (
-        $iStuck -gt 0 -and $iDrain2 -gt $iStuck -and $maaLib.IndexOf('if ($quiet -gt $stall)') -gt $iDrain2)
-    Check '早触发也受同一份预算管($rescueLeft)，且用 Get-Command 探路' (
-        $blockStuck -match '\$rescueLeft -gt 0' -and $blockStuck -match '\$rescueLeft--' -and
-        $blockStuck -match 'Get-Command Invoke-GdVisionRescue')
-    Check '早触发把"为什么觉得它卡住"原话带给模型(卡在哪个子任务、重复点了多少次)' (
-        $blockStuck -match '重复点了' -and $blockStuck -match '-Context \$whyStuck')
-    Check '兜底结论拼进这一轮的救援记录，同时记进救火账本' (
-        $blockStuck -match '\$rescues \+= \$rc\.Detail' -and $blockStuck -match 'Add-GdRescueRecord')
 } else {
     Check 'lib\vision-rescue.ps1 存在(方舟仓库少了它探测就不生效)' $false '没找到 Get-GdArkDesktopState'
 }
@@ -504,24 +479,9 @@ Write-Host "`n[t15] MAA 自己把队列跑空了，别再傻等 22 分钟(2026-0
 # 07:56:46 gui.log 打出「任务已完成，但出现错误！」= MAA 的队列已经空了、它不会再自己动。
 # 老代码只认「任务已全部完成」，于是这一种收尾一路等到「asst.log 静默 22 分钟」才反应，
 # 而那时候就算把挡路窗口关掉也没人接着跑 —— 白等 22 分钟。
-Check '认下「跑完但有错误」这句收尾，并置 $drained' (
-    $maaLib -match '任务已完成，但出现错误' -and $maaLib -match '\$drained = \$true')
-Check '队列跑空且链路没跑齐 → 当场兜底，不等静默判定' (
-    $maaLib -match '\$drained -and -not \$allDone')
-# 把这一段单独切出来判：这一段只准"兜底一次 + 早退"，重启端游/重起 MAA 是外层重试干的事
-$iDrain = $maaLib.IndexOf('if ($drained -and -not $allDone)')
-$iQuiet = $maaLib.IndexOf('if ($quiet -gt $stall)')
-$blockDrain = if ($iDrain -gt 0 -and $iQuiet -gt $iDrain) { $maaLib.Substring($iDrain, $iQuiet - $iDrain) } else { '' }
-Check '这段判定排在"静默 22 分钟"之前(顺序错了就等于没改)' (
-    $iDrain -gt 0 -and $iQuiet -gt $iDrain) "drain@$iDrain quiet@$iQuiet"
-Check '跑空后先当场兜底一次(有视觉兜底函数才兜，$rescueLeft 限次数)' (
-    $blockDrain -match 'Invoke-GdVisionRescue' -and $blockDrain -match '\$rescueLeft--')
-Check '这一轮不做原地重启：关端游重开 + 重起 MAA 是外层那一次重试的事(2026-09-25 08:4x 实测走的正是那条路)' (
-    $blockDrain -notmatch 'Stop-Process' -and $blockDrain -notmatch 'Start-Process' -and
-    $blockDrain -notmatch 'Stop-MaaAndGame' -and $blockDrain -notmatch 'Start-GdArkClient')
-Check '兜过没兜成都一律立刻早退成 stalled，并说明外层会重试一次(不再清零计时继续等)' (
-    $blockDrain -match "Status = 'stalled'" -and $blockDrain -match '外层会重试一次' -and
-    $blockDrain -notmatch '(?im)^\s*continue\s*$')
+# 2026-10-27 甲档第四刀刀②：本节原咬 lib\maa.ps1 壳内字面的六格随 Invoke-MaaRun 出仓退役——
+# 「跑完但有错误」认线、$drained 置位、跑空当场兜底一次＋早退 stalled＋外层重试一次的话术与块序，
+# 金样现由 panel-cs --looptest 接守(RunLoops.SelfTest.cs：「MAA 队列已跑空但只完成 0/2 条链路…外层会重试一次」族)。
 
 Write-Host "`n[t16] 救火账本 + 只问不点的诊断入口(2026-09-26 加强 AI 干预时加的，全程不联网、不起子进程)"
 if (Get-Command Add-GdRescueRecord -ErrorAction SilentlyContinue) {
@@ -597,8 +557,8 @@ if (Test-Path -LiteralPath $askPath) {
 }
 
 Write-Host "`n[farm] 智能补材料(lib\ark-farm.ps1，纯函数喂假数据；IO 只碰临时目录)"
-$farmLib = Join-Path $PSScriptRoot '..\lib\ark-farm.ps1'
-if (Test-Path -LiteralPath $farmLib) { . $farmLib }   # 记账/判定层和 ark-daily 一样不在 test-lib 的点用清单里，这条自己点；文件不在(工程被裁)交给下面的守卫说人话
+# 这份库由 test-lib 按清单点进来(以前它不在名单里，下面那段记账跑的是"认不到函数→catch→打一句 WARN 就过"的假绿)。
+# 文件不在(工程被裁)时交给下面那句守卫说人话，不在这里自己补点。
 if (Get-Command Resolve-ArkFarmPlan -ErrorAction SilentlyContinue) {
     # —— 目标清单解析：三种写法 + 坏行不静默 ——
     $p1 = Parse-GdArkFarmTargetSpec -Raw 'D32钢=30@CE-5'
@@ -678,6 +638,60 @@ if (Get-Command Resolve-ArkFarmPlan -ErrorAction SilentlyContinue) {
             [int]$led2.DropTable['30135']['CE-5'].qty -eq 12)
         Check 'farm 账本：偏移按 {path;offset} 成对存(换日志文件不回扫旧账)' (
             [string]$led2.Inventory.offset.path -eq 'X:\fake\gui.log' -and [long]$led2.Inventory.offset.offset -eq 4096)
+
+        # —— 记账 IO 端到端(2026-09-26 补)：真函数 Update-GdArkFarmLedger 整段跑一遍 ——
+        # 这条以前根本测不了：ark-farm.ps1 不在 test-lib 的点用清单里，ark-daily 收尾那句调用在自检环境里
+        # 认不到函数 → 掉进它自己的 catch → 打一句 WARN 就"过"了，全套件仍然全绿(零覆盖的假绿)。
+        # 现在名单补齐了，这里用 假 gui.log + 假材料表 + 临时 state 把"读日志→记增量→写偏移"这条真链路钉住。
+        # 两本账先写成"文件在但是空账"：文件不在会让它去读真 MAA 目录的 DepotData 做首跑标定，数字就不可押了。
+        Write-GdJson -Path (Get-GdArkFarmInventoryPath) -Object ([pscustomobject]@{ version = 1; offset = $null; byId = [pscustomobject]@{} })
+        Write-GdJson -Path (Get-GdArkFarmDropTablePath) -Object ([pscustomobject]@{})
+        $fakeLog = Join-Path $tmpState 'gui-farm.log'
+        # 编码自己钉无 BOM UTF-8：5.1 的 Add-Content/Set-Content -Encoding utf8 会带 BOM，
+        # BOM 混在日志中间会被 Get-GdFileTail 当成正文，材料名就认不出来了(那是测试自己的坑，不是被测代码的坑)。
+        [System.IO.File]::WriteAllText($fakeLog, ($sample + "`r`n"), (New-Object System.Text.UTF8Encoding($false)))
+        function Invoke-GdFarmLedgerOnce {
+            param([string]$Log, $S)
+            # 只把 Get-MaaPaths 换成指假日志的桩(和上面重试探针同一招：函数定义在本作用域，按动态作用域盖掉同名函数)
+            function Get-MaaPaths { param($S) return [pscustomobject]@{ GuiLog = $Log } }
+            return (Update-GdArkFarmLedger -S $S)
+        }
+        $mapsBak = (Get-Variable -Name GdArkItemMaps -Scope Global -ErrorAction SilentlyContinue).Value
+        $global:GdArkItemMaps = @{ NameToId = $N2I; IdToName = $I2N }
+        # 真 state 里那份账本先留哈希：整段测试只许碰临时目录，真账本一个字节都不许变
+        $realInv = Join-Path $stateBak 'ark-inventory.json'
+        $realHashBefore = if (Test-Path -LiteralPath $realInv) { (Get-FileHash -LiteralPath $realInv -Algorithm SHA256).Hash } else { '' }
+        try {
+            $note1 = Invoke-GdFarmLedgerOnce -Log $fakeLog -S $S
+            $led3 = Read-GdArkFarmLedger -S $S
+            Check 'farm 记账：真链路跑通，D32钢按 (+2) 入账且来源标 drops' (
+                [int]$led3.Inventory.byId['30135'] -eq 2 -and [string]$led3.Inventory.origin['30135'] -eq 'drops') ($note1)
+            Check 'farm 记账：同一块里的第二个材料也记上(或铝石 +1)' ([int]$led3.Inventory.byId['30115'] -eq 1)
+            Check 'farm 记账：学习表抓到「关卡→材料」关系(CE-5 掉 D32钢 2 个，1 场)' (
+                [int]$led3.DropTable['30135']['CE-5'].runs -eq 1 -and [int]$led3.DropTable['30135']['CE-5'].qty -eq 2)
+            Check 'farm 记账：只认 (+N)，"(30)"那种总数不入账；认不出的名字进未识别表而不是被丢掉' (
+                ([int]$led3.Inventory.byId['30114'] -eq 0 -or -not $led3.Inventory.byId.ContainsKey('30114')) -and
+                (@(Read-GdJson -Path (Get-GdArkFarmDropsPath)) -contains '采购凭证'))
+            Check 'farm 记账：偏移存成"读到的那个字节数"，落在假日志的真实长度上' (
+                [string]$led3.Inventory.offset.path -eq $fakeLog -and
+                [long]$led3.Inventory.offset.offset -eq (Get-Item -LiteralPath $fakeLog).Length)
+            # 关键回归：同一段日志再跑一遍必须什么都不记(上上轮拿首拍把 7 月的旧完成线扫进过账)
+            $note2 = Invoke-GdFarmLedgerOnce -Log $fakeLog -S $S
+            $led4 = Read-GdArkFarmLedger -S $S
+            Check 'farm 记账：日志没新增就返回空话，绝不回扫旧账' (
+                [string]::IsNullOrEmpty([string]$note2) -and [int]$led4.Inventory.byId['30135'] -eq 2) ($note2)
+            [System.IO.File]::AppendAllText($fakeLog, "[09:10:00] CE-4 掉落统计:`r`nD32钢 : 5 (+3)`r`n", (New-Object System.Text.UTF8Encoding($false)))
+            $note3 = Invoke-GdFarmLedgerOnce -Log $fakeLog -S $S
+            $led5 = Read-GdArkFarmLedger -S $S
+            Check 'farm 记账：追加一段只吃新增那半(+3 → 5)，旧块不重记' (
+                [int]$led5.Inventory.byId['30135'] -eq 5 -and [int]$led5.DropTable['30135']['CE-5'].runs -eq 1 -and
+                [int]$led5.DropTable['30135']['CE-4'].runs -eq 1) ($note3)
+        } finally {
+            if ($null -ne $mapsBak) { $global:GdArkItemMaps = $mapsBak }
+        }
+        $realHashAfter = if (Test-Path -LiteralPath $realInv) { (Get-FileHash -LiteralPath $realInv -Algorithm SHA256).Hash } else { '' }
+        Check 'farm 记账：整段只碰临时目录，真 state 的 ark-inventory.json 一个字节没变' (
+            $realHashAfter -eq $realHashBefore) ("before=[$realHashBefore] after=[$realHashAfter]")
     } finally {
         $global:GD.State = $stateBak
         Remove-Item -LiteralPath $tmpState -Recurse -Force -ErrorAction SilentlyContinue
