@@ -189,8 +189,8 @@ Show-GdCommonTailChecks
 # 2026-09-23 内部拆分：重试策略跟着"跑一轮"一起搬进了 lib\ark-daily.ps1，入口脚本只剩参数分发；
 # 10-24 刀③ 把 ark 那枚 PS 回退臂整段出仓后，这里的桌子跟着换(与 test-r1999 在 刀② 的同形改口同一条纪律)：
 # 跳过清单的家在 tools\panel-cs\Orchestration.cs 的 DailyRetry ark 支(verb decide-daily-retry，-Game ark)，
-# "重试轮必须重开端游"与"读不到桌面名不许杀正常路"那两条行为的家在 tools\rustcore\probe-arkdrive-rust-golden.ps1
-# 的 retry-stalled／desk-empty 两档——刀③-补尺(5bc83b1)先把那两格立起来，本批才删下面那两枚假函数探针：
+# "重试轮必须重开端游"与"读不到桌面名不许杀正常路"那两条行为的家：5bc83b1 先补尺立进 probe-arkdrive 门的
+# retry-stalled／desk-empty 两档，10-27 第十九刀随门整件搬进 main.rs 的 --selftest 第 29 节(见下面六格静态锚)。
 # 回退臂出仓后 Start-GdArkDaily 只剩"起内置件走核内驱动档"一条路，探针要桩掉的那条 PS 链已经没有家。
 # 断言内容一个字没改——三枚状态名一枚不许少，正则取空窗一律红(fail-closed，不是"读不到就放过")。
 $orchArkCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Orchestration.cs') -Raw -Encoding utf8
@@ -199,33 +199,71 @@ Check '方舟重试也会跳过 unknown-format' (($arkRetryWin -match '"ok"') -a
 . (Join-Path $PSScriptRoot '..\lib\ark-daily.ps1')   # test-lib 现在按清单把编排层也点进来了(2026-09-26)；这条留着只为"工程被裁时这里还能自己点一次"，重复 dot 只是重新定义同名函数，无副作用
 # 2026-09-24 06:00 那一坑(重试前先 Stop-MaaAndGame 把端游也关了，而"拉端游"那句写在重试闭包外面 ⇒ 重试那轮
 # 只有 MAA 起来、游戏没起来，白烧一轮)与 2026-09-26 那两条桌面分支(屏保占住 → not-started 早退、一个端游不拉；
-# 桌面名读不到 '' = 不知道 → 不许据此杀正常路)，判据已由 tools\rustcore\probe-arkdrive-rust-golden.ps1 的
-# retry-stalled／desk-empty 两档接手(5bc83b1)：那里 old 侧连壳带核一起取自基线 commit a9dea09、new 侧用现帧，
-# 两代各跑各的链体与真 executor，两侧各拍"拉端游两次且 stop#1<launch#2<run#2"与"读不到桌面名仍照常拉起"——
-# 本文件那两枚假函数探针只能拍 PS 一代，等值面拍不到"两代一起漏一次 launch"，所以补尺先于删件、删的是臂不是判据。
-# 这里自此只留一格"那把尺还在不在"：那一格被人删掉时本套件当场红，而不是静默少一条判据。
-# 2026-10-24 推仓 51：这一格读的是门件本体，而 probe-arkdrive-rust-golden.ps1 按口径不出仓(开发态伴生件——publish-split
-# 只放 tools\rustcore 的 build.ps1/Cargo*/src 进导出树，等值对拍门要 git 工作树与双代 gdcore，玩家树里既没那把尺也没
-# 造尺的料)。于是本套件有两种落点、对象不同，分两档各判各的(与验收链"内置件在场/不在场"同一把尺)：尺在＝照咬四枚符号
-# (出货树若哪天带上门件也走这一档)；尺不在但 docs\rust-core-plan.md 在＝这是工作树，尺被人删/改名＝当场红，一个字没松；
-# 尺与 docs 都不在＝公开出货树形态，交回一行「跳过」的读数而不是假绿。松的仍只是"判的对象"，判据没放宽。
-$arkDriveGateFile = Join-Path $PSScriptRoot 'rustcore\probe-arkdrive-rust-golden.ps1'
-if (Test-Path -LiteralPath $arkDriveGateFile) {
-    $arkDriveGate = Get-Content -LiteralPath $arkDriveGateFile -Raw -Encoding utf8
-    Check 'arkdrive 门里 retry-stalled／desk-empty 两档与两格行为判据在场' (
-        ($arkDriveGate -match 'retry-stalled') -and ($arkDriveGate -match 'desk-empty') -and
-        ($arkDriveGate -match 'C-retry-relaunch') -and ($arkDriveGate -match 'C-desk-empty-vs-early'))
-} elseif (Test-Path -LiteralPath (Join-Path $PSScriptRoot '..\docs\rust-core-plan.md')) {
-    Check 'arkdrive 门里 retry-stalled／desk-empty 两档与两格行为判据在场' $false '工作树里这把尺不见了(刀③-补尺 5bc83b1 立的门件被删/改名)'
-} else {
-    Write-Host '  [跳过] arkdrive 门件：公开出货树按口径不带 probe-*(docs\ 也不在＝这不是工作树)' -ForegroundColor Yellow
-}
+# 桌面名读不到 '' = 不知道 → 不许据此杀正常路)：判据的家在 5bc83b1 补进 probe-arkdrive 门的 retry-stalled／
+# desk-empty 两档，两代各拍"拉端游两次且 stop#1<launch#2<run#2"与"读不到桌面名仍照常拉起"；那两枚假函数探针
+# 只能拍 PS 一代，等值面拍不到"两代一起漏一次 launch"，所以当年补尺先于删件、删的是臂不是判据。
+# 2026-10-27 甲档第十九刀：这座等值门(1,014 行／39 格)整件退役——两档两格的行为判据逐格搬进
+# tools\rustcore\src\main.rs 的 --selftest 第 29 节(三会话差一枚替身/ctx 的 C-retry-relaunch、早退支与继续支
+# 第一次成对的 C-desk-empty-vs-early，另有 mark 双元素与 obsrec Found=false 两半边)，随门死的是 H0 脚手架 12 枚
+# 与等值面 21 枚；搬家与 mutation 归因的账见 docs\rust-core-plan.md §11.161/§11.162。
+# 这里自此只留"搬过去的尺还在不在"这一类格子：被人删掉时本套件当场红，而不是静默少一条判据。
+# ⚠ 推仓 51 那笔把这一格分成三档各判各的，是因为门件按口径不出仓(publish-split 只放 tools\rustcore 的
+# build.ps1/Cargo*/src，等值门要 git 工作树与双代 gdcore，玩家树里既没那把尺也没造尺的料)。今天读的两份
+# ——lib\ark-daily.ps1 与 tools\rustcore\src\main.rs——三棵树都在场，所以合回无条件一档：判据没放宽，
+# 只是"跳过"那一形不再有对象。四格形状照 test-r1999 在 第十六刀 立的静态锚。
+$arkDrivePs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\ark-daily.ps1') -Raw -Encoding utf8
+$arkCoreRs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'rustcore\src\main.rs') -Raw -Encoding utf8
+$arkVisionCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Vision.SelfTest.cs') -Raw -Encoding utf8
+Check 'arkdrive 门两档的行为判据已在核内 --selftest 第 29 节(门退役后尺住在代码里)' (
+    ($arkCoreRs.Contains('第 29 节：arkdrive 门退役四组真空档补尺')) -and ($arkCoreRs.Contains('C-retry-relaunch')) -and
+    ($arkCoreRs.Contains('C-desk-empty-vs-early')))
+Check 'ark executor 的 ask 白名单仍是十一枚(与核内 DriveFx 动作名逐字同源，改一侧必改另一侧)' ($arkDrivePs.Contains("@('desk', 'svdetail', 'takeover', 'cfg', 'entryverb', 'launch', 'stop', 'sleep', 'skip', 'ledger', 'obs')"))
+Check 'ark executor 里没有复活 run／mark／obsrec／admin 任一枚 case(双删是回归抓器：四枚全在核内真做)' (
+    (-not $arkDrivePs.Contains("'run' {")) -and (-not $arkDrivePs.Contains("'mark' {")) -and
+    (-not $arkDrivePs.Contains("'obsrec' {")) -and (-not $arkDrivePs.Contains("'admin' {")))
+Check 'ark 那一路的信封 role 字面仍在(壳认账本是谁的；门里那枚校验随门一起没了)' ($arkDrivePs.Contains('R3-drive-ark-daily'))
+# ctx 的**写侧**半边(门 :825 那句「逐枚点名取键那条硬约束就在这里验收」)：读侧取值由 --selftest 第 20 节钉，
+# 这里钉的是壳往 ctx 里塞了什么——runtime 那七枚必须逐枚点名取，而整块 $S.runtime 里住着视觉兜底的 API key，
+# 所以 ark-daily.ps1 全文不许出现那枚键名(出现＝有人把整块序列化进账)。
+Check 'ctx 的 runtime 七枚仍逐枚点名取键(不整块序列化 $S.runtime)' (
+    ($arkDrivePs.Contains('[int]$S.runtime.arkStartTimeoutMinutes')) -and ($arkDrivePs.Contains('[int]$S.runtime.arkTimeoutMinutes')) -and
+    ($arkDrivePs.Contains('[int]$S.runtime.stallTimeoutMinutes')) -and ($arkDrivePs.Contains('[int]$S.runtime.idleConfirmSeconds')) -and
+    ($arkDrivePs.Contains('[bool]$S.runtime.abortOnMaaStallWarning')) -and ($arkDrivePs.Contains('[int]$S.runtime.visionMaxRescue')) -and
+    ($arkDrivePs.Contains('benignMaaErrors')) -and ($arkDrivePs.Contains('= $benignMaa')))
+Check 'ark 壳侧一个字都不碰视觉 API key(visionApiKey 不许进 ctx/journal 那两本留盘的账)' (-not $arkDrivePs.Contains('visionApiKey'))
 # 2026-10-27 甲档第四刀刀②：Invoke-MaaRun 真身(lib\maa.ps1 旧 :220-620)整函数出仓——
 # 循环骨架进核(maa_run + RealHost，tools\rustcore\src\main.rs)，判据/话术唯一事实源在
 # tools\panel-cs\RunLoops.cs／Orchestration.cs。原咬壳内字面的那批格随壳侧退役：
 # unknown-format／asstHint 停滞线索拼装／rescue 三笔账与 -Context／stuckExec 早退与 #17 早触发块序／
 # drained 认错收尾与跑空兜底块——对面金样 = panel-cs --looptest(基线钉 c498da0)与
-# tools\rustcore\probe-arkrun-rust-golden.ps1(27 档，自带 251bd3c 帧逐字副本)。
+# tools\rustcore\src\main.rs 的 --selftest 第 30 节(27 档 1218 步金样回放)。
+# 2026-10-27 甲档第二十刀刀②：那座三侧等值门(probe-arkrun-rust-golden.ps1，1,671 行／13 格)整件退役——
+# 真空档 H1/H2/H3/H5/H6 共 155 枚已随刀① 搬进第 30 节，随门死的是 H0 脚手架七枚与 H4(PS 老编排那一侧
+# 的等值面，对面已随刀③ 一起没)；搬家与六发 mutation 归因的账见 docs\rust-core-plan.md §11.163/§11.164。
+# 形状照第十九刀：这里自此只留"搬过去的尺还在不在"这一类无条件静态锚，被人删掉时本套件当场红。
+Check 'arkrun 门 27 档等值面已在核内 --selftest 第 30 节(门退役后尺住在代码里)' (
+    ($arkCoreRs.Contains('30. arkrun 27 档金样回放')) -and ($arkCoreRs.Contains('K20_GOLDEN')) -and
+    ($arkCoreRs.Contains('K20_EXTRA')))
+Check '第 30 节的名册与形状是两份独立事实源(不从金样反推＝第十五刀那条恒真尺防线)' (
+    ($arkCoreRs.Contains('const K20_NAMES: [&str; 27] = [')) -and ($arkCoreRs.Contains('const K20_VERBS: [&str; 14] = [')) -and
+    ($arkCoreRs.Contains('K20_SHAPE')))
+# 2026-10-28 甲档第二十刀刀③：lib\vision-rescue.ps1 的兜底编排六枚(Invoke-GdVisionRescue 及其三枚族内助手
+# New-GdRescueSkip/Clear-GdRescueShotDir/Get-GdRescueLedgerPath ＋两枚壳 Test-GdShotChanged/Add-GdRescueRecord，
+# 169 函数行)整件出仓，对面随门死的那部分不再重立；t13/t16 那 20 枚随壳侧退役，搬家账见 §11.165。
+# 这里照第十九刀留三枚无条件静态锚：一枚"退役不回潮"(有人把六枚定义搬回来就当场红)，两枚"搬过去的尺还在"。
+$visionRescuePs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-rescue.ps1') -Raw -Encoding utf8
+Check '兜底编排六枚的定义不在现树 PS 侧(双删是回归抓器：编排只住核内 vision_rescue 一处)' (
+    (-not $visionRescuePs.Contains('function Invoke-GdVisionRescue ')) -and
+    (-not $visionRescuePs.Contains('function New-GdRescueSkip ')) -and
+    (-not $visionRescuePs.Contains('function Clear-GdRescueShotDir ')) -and
+    (-not $visionRescuePs.Contains('function Get-GdRescueLedgerPath ')) -and
+    (-not $visionRescuePs.Contains('function Test-GdShotChanged ')) -and
+    (-not $visionRescuePs.Contains('function Add-GdRescueRecord ')))
+Check '刀③ 补尺两枚住在核内第 19 节(链不记帐 / context 原样递到问价层)' (
+    ($arkCoreRs.Contains('第二十刀刀③ 补尺①')) -and ($arkCoreRs.Contains('第二十刀刀③ 补尺②')))
+Check '画面变没变的四形与 detail 压平两形住在 C# 自检里(Vision.SelfTest.cs 接守 t13/t16 摘下的那两族)' (
+    ($arkVisionCs.Contains('只有一格抖 1 档')) -and ($arkVisionCs.Contains('两次画面格数不同')) -and
+    ($arkVisionCs.Contains('detail 换行压平')))
 
 Write-Host "`n[t12] asst.log 停滞线索(gui.log 静默时唯一看得见的东西)"
 # 2026-09-24 18:00 那轮：gui.log 22 分钟一个字没有，asst.log 里 StartUp@GameStart 的 exec_times 从 1 涨到 316。
@@ -333,71 +371,38 @@ if (Get-Command Get-GdVisionVerdictFromText -ErrorAction SilentlyContinue) {
     Check '点右下角最后一个像素也算越界' (
         $null -eq (Get-GdRescueClickPoint -Shot $shot -Verdict (vd 1000 1000)))
 
-    # "点完画面到底变没变"必须用粗亮度签名，不能用文件哈希：端游背景有噪点动画，
-    # 2026-09-24 那次 PostMessage 点完弹窗还在，却因为哈希不同被报成"救活了"。
-    function SigWith($idxs, $val) { $a = @(1..144 | ForEach-Object { 20 }); foreach ($i in $idxs) { $a[$i - 1] = $val }; return ($a -join ',') }
-    $shotA = [pscustomobject]@{ Sig = (SigWith @() 0) }
-    $c0 = Test-GdShotChanged -Before $shotA -After $shotA
-    Check '同一张画面 → 判"没变"' ($c0.Known -and -not $c0.Changed) $c0.Detail
-    $c1 = Test-GdShotChanged -Before $shotA -After ([pscustomobject]@{ Sig = (SigWith @(7) 21) })
-    Check '只有一格抖 1 档(噪点动画) → 仍判"没变"' (-not $c1.Changed) $c1.Detail
-    $c2 = Test-GdShotChanged -Before $shotA -After ([pscustomobject]@{ Sig = (SigWith @(60, 61, 69, 70) 3) })
-    Check '弹窗那一块整体暗下去 → 判"变了"' ($c2.Known -and $c2.Changed) $c2.Detail
-    $c3 = Test-GdShotChanged -Before ([pscustomobject]@{ Sig = '' }) -After $shotA
-    Check '拿不到签名(截图那步就没成)时不硬判' (-not $c3.Known -and -not $c3.Changed) $c3.Detail
+    # 2026-10-28 甲档第二十刀刀③：本节原咬 Test-GdShotChanged 转发壳的四发实跑(同图/单格抖/整块暗/没签名)
+    # 随壳出仓退役。"点完画面到底变没变必须用粗亮度签名、不能用文件哈希"这条判据没跟着消失：四形现由
+    # panel-cs --visiontest 接守(Vision.SelfTest.cs:279-306，含"两次画面格数不同→说不清别硬判"那形)，
+    # 阈值为什么是"≥2 格、每格 ≥3 档"记在 Vision.cs 的 shot-changed 段，核内消费点另有第 19 节
+    # 「点了但画面没变」那一格钉话术($chg.Detail 出现两次的原样怪癖)。
     $fnShot = (Get-Command Save-GdWindowShot).Definition
     $fnClick = (Get-Command Send-GdArkClick).Definition
-    $fnRescue = (Get-Command Invoke-GdVisionRescue).Definition
-    Check '截图函数会带回 Sig(不然上面几条全是瞎的)' ($fnShot -match 'Sig = ')
+    Check '截图函数会带回 Sig(不然"画面变没变"那一路全是瞎的)' ($fnShot -match 'Sig = ')
     Check '点击走"抢前台 + 真实鼠标"，PostMessage 只当退路' (
         $fnClick -match 'TryForeground' -and $fnClick -match 'RealClick' -and $fnClick -match 'ClickOnce')
-    # 2026-09-26 起兜底内核不认识端游了：截图/点击都向靶子要(lib\vision-ark.ps1 的 New-GdVisionTarget-ark)。
-    # 所以这里判两件事：内核里**不能**再出现端游那三个动作，而靶子必须把它们接上 —— 少一头就是"兜底静默不生效"。
+    # 2026-10-26 起兜底内核不认识端游了：截图/点击都向靶子要(lib\vision-ark.ps1 的 New-GdVisionTarget-ark)。
+    # 编排层那半"内核里不能再出现端游那三个动作"随 Invoke-GdVisionRescue 出仓，判据改由 Rust 第 19/30 节的
+    # 现场 verb 名册接守(ark 两枚 ark-window-shot/ark-window-click)；这里判的还是另一头——靶子必须把
+    # Shot/Click 接到端游那两枚真件上，接不上就是"兜底静默不生效"。
     $fnTarget = (Get-Command New-GdVisionTarget-ark).Definition
-    Check '兜底内核只向靶子要 Shot/Click，不再自己拍端游窗口、自己点端游' (
-        $fnRescue -match '\$t\.Shot' -and $fnRescue -match '\$t\.Click' -and
-        $fnRescue -notmatch 'Send-GdArkClick|ClickOnce|PostMessage|PrintWindow|Get-GdArkWindow')
     Check '端游靶子把 Shot/Click 接到 Save-GdWindowShot / Send-GdArkClick 上' (
         $fnTarget -match 'Save-GdWindowShot' -and $fnTarget -match 'Send-GdArkClick')
     Check '最小化的窗口会先 SW_RESTORE 再拍(否则拍到的是 168x29 空位图)' (
         $fnShot -match 'IsIconic' -and $fnShot -match 'Restore')
-
-    # 复制 + 改值都走通用工具(Set-GdMapValue 用 Add-Member -Force)：直接写 $obj.arkVisionRescue = $false
-    # 在这份 settings 里没有这个键时会抛"找不到属性"，而导出仓库的模板恰恰可能没给。
-    $runtimeOff = [pscustomobject](Convert-GdMapToHashtable $S.runtime)
-    Set-GdMapValue -Map $runtimeOff -Key 'arkVisionRescue' -Value $false | Out-Null
-    $r0 = Invoke-GdVisionRescue -S ([pscustomobject]@{ runtime = $runtimeOff; paths = $S.paths })
-    Check 'arkVisionRescue=false → 一次都不试' (-not $r0.Tried -and -not $r0.Done -and $r0.Detail -match 'arkVisionRescue') $r0.Detail
-    # 前置条件不满足的两条闸门都排在"截图"之前 → 这一条既不会联网也不会拍窗口，不管当前是不是管理员
-    $runtimeNoKey = [pscustomobject](Convert-GdMapToHashtable $S.runtime)
-    Set-GdMapValue -Map $runtimeNoKey -Key 'visionApiKey' -Value '' | Out-Null
-    $savedKey = $env:DASHSCOPE_API_KEY
-    $env:DASHSCOPE_API_KEY = ''
-    $r1 = Invoke-GdVisionRescue -S ([pscustomobject]@{ runtime = $runtimeNoKey; paths = $S.paths })
-    $env:DASHSCOPE_API_KEY = $savedKey
-    Check '没提权或没 key → 直接放弃，不截图也不调模型' (
-        -not $r1.Tried -and -not $r1.Done -and $r1.Detail -match '权限|key') $r1.Detail
-
-    # 2026-09-26：一次问价拿到的 3 个点位在这里按把握逐个试。为什么值得逐个试 ——
-    # 实测模型认得弹窗、却把 × 认成旁边那个"暂不查看"，只给一个点位时"点完没动"就只能整轮放弃；
-    # 而三个点位来自同一次问价：不额外花钱、不额外等模型，也不会出现"换个答案把上一个还回去"。
-    Check '兜底改成按候选点位逐个试的循环，每个点位点完都补拍一张再比' (
-        $fnRescue -match 'foreach \(\$pt in \$points\)' -and $fnRescue -match '-after' -and
-        $fnRescue -match 'Test-GdShotChanged')
-    Check '落不到画面里的候选先全部剔掉，一个不剩就直接放弃(不在真点击时才发现点位在标题栏上)' (
-        $fnRescue -match '\$points = @\(foreach' -and $fnRescue -match 'if \(-not \$points\.Count\)')
-    Check '试完最后一个点位仍没动 → 说清"点了几个候选、画面都没动"' (
-        $fnRescue -match '候选点位' -and $fnRescue -match '画面都没动')
-    Check '救火账本由调用方点，内核自己不记(内核不知道自己是给哪一路兜的)' (
-        $fnRescue -notmatch 'Add-GdRescueRecord')
-    # 上下文：同一张画面，带不带"卡在哪个任务、重复点了多少次"，模型挑出的挡路货不一样，
-    # 而兜底一轮就那么几次机会 —— 问得准比问得省重要。
+    # 2026-10-28 甲档第二十刀刀③：本节原有两枚真跑格("arkVisionRescue=false 一次都不试"与"没提权或没 key
+    # 直接放弃")随编排壳退役。开关话术必须带 settings 键名这条判据没丢，它在 C# 那侧由 --livetest
+    # 两格钉住(Live.SelfTest.cs:137/174 认 'arkVisionRescue=false，视觉兜底已关闭')；闸门顺序(Python 排在
+    # 截图之前)现由核内投影序钉住(第 19 节 rescue-ok 的 resolve-rescue-context 排在 ark-window-shot 之前)。
+    # 多候选循环那三格(逐个试/先剔越界/全灭话术)与"账本由调用方点""-Context 递到问价层"两格一并出仓，
+    # 前者在第 30 节 ark 27 档金样里有原样的步序，后两枚是本刀新立的第 19 节补尺两格(见 --selftest)。
     $fnRaw = (Get-Command Invoke-GdVisionRaw).Definition
     $fnAsk = (Get-Command Invoke-GdVisionAsk).Definition
     Check '问价那一层把自动化的处境拼进用户那句话，并且截到 200 字(不塞日志原文)' (
         $fnRaw -match '自动化这边的处境' -and $fnRaw -match '200')
-    Check '-Context 一路从兜底入口递到问价层，中间不断线' (
-        $fnRescue -match 'Invoke-GdVisionAsk.*\$Context' -and $fnAsk -match 'Invoke-GdVisionRaw.*\$Context')
+    # 这一格原来是两半：$fnRescue 那半随编排壳出仓(改由核内补尺②钉"context 键与值原样递到问价层")，
+    # 这里只剩还活着的那半——转发壳把 -Context 交给起子进程那枚。两半不许一起摘：留着的这半有真对面。
+    Check '-Context 从问价壳递到起子进程那层，中间不断线' ($fnAsk -match 'Invoke-GdVisionRaw.*\$Context')
 } else {
     Check 'lib\vision-rescue.ps1 存在(方舟仓库少了它兜底就不生效)' $false '没找到 Get-GdVisionVerdictFromText'
 }
@@ -483,56 +488,16 @@ Write-Host "`n[t15] MAA 自己把队列跑空了，别再傻等 22 分钟(2026-0
 # 「跑完但有错误」认线、$drained 置位、跑空当场兜底一次＋早退 stalled＋外层重试一次的话术与块序，
 # 金样现由 panel-cs --looptest 接守(RunLoops.SelfTest.cs：「MAA 队列已跑空但只完成 0/2 条链路…外层会重试一次」族)。
 
-Write-Host "`n[t16] 救火账本 + 只问不点的诊断入口(2026-09-26 加强 AI 干预时加的，全程不联网、不起子进程)"
-if (Get-Command Add-GdRescueRecord -ErrorAction SilentlyContinue) {
-    # 这本账回答的是"哪一路、哪个环节、兜完画面到底变没变"，和 ask.py 那本接口账(state\vision\calls.jsonl)分开放。
-    # 它会真写 state\rescue.json，所以照 t7 的规矩先存后还原。
-    Save-GdTestState -Names @('rescue')
-    try {
-        # 先把它删掉：**第一次**救火时这本账压根不存在，而 Read-GdJson 对"文件不存在"是 throw，
-        # 入口又是 $ErrorActionPreference='Stop' —— 不先测这一条，"记一笔账"能把整轮日常弄挂(2026-09-26 就是这么红出来的)。
-        Remove-Item -LiteralPath (Get-GdRescueLedgerPath) -Force -ErrorAction SilentlyContinue
-        # -S 在这条路上只是"要不要写得出账"的旁观者(它连 settings 都不读)，给个空壳就够
-        $noCfg = [pscustomobject]@{ runtime = [pscustomobject]@{} }
-        $firstOk = $true
-        try {
-            [void](Add-GdRescueRecord -S $noCfg -Game 'ark' -Target 'ark' -Tag 'first' `
-                    -Result ([pscustomobject]@{ Tried = $false; Done = $false; Detail = '账本还没有，第一次记一笔' }))
-        } catch { $firstOk = $false; Write-Host "  第一次记账就抛了：$($_.Exception.Message)" -ForegroundColor Red }
-        Check '账本文件还不存在时也能记下第一笔(不把"记账"升级成"整轮失败")' $firstOk
-        $fnLedger = (Get-Command Add-GdRescueRecord).Definition
-        Check '记账前先看文件在不在(Read-GdJson 对缺文件是 throw，裸调就是上面那条)' (
-            $fnLedger -match 'Test-Path -LiteralPath \$path')
-        [void](Add-GdRescueRecord -S $noCfg -Game 'ark' -Target 'ark' -Tag 'stuck1' `
-                -Result ([pscustomobject]@{ Tried = $true; Done = $false; Detail = "第一行`n第二行(换行要被压平)" }))
-        [void](Add-GdRescueRecord -S $noCfg -Game 'r1999' -Target 'mumu' -Tag 'm9a1' `
-                -Result ([pscustomobject]@{ Tried = $true; Done = $true; Detail = '已按模型判断关掉活动弹窗' }))
-        $led = Read-GdJson -Path (Get-GdRescueLedgerPath)
-        Check '账本落在 state\rescue.json，一次兜底一行' ($led -and @($led.events).Count -eq 3) "实际 $(@($led.events).Count) 条"
-        Check '归属(game/target/tag)由调用方写进去(内核不知道自己是给哪一路兜的)' (
-            $led.events[1].game -eq 'ark' -and $led.events[1].target -eq 'ark' -and
-            $led.events[2].game -eq 'r1999' -and $led.events[2].target -eq 'mumu') $(
-            "$($led.events[1].game)/$($led.events[1].target) + $($led.events[2].game)/$($led.events[2].target)")
-        Check '兜没兜成是两个独立的 bool(试过 ≠ 救活)' (
-            $led.events[1].tried -and -not $led.events[1].done -and $led.events[2].done) $(
-            "$($led.events[1].tried)/$($led.events[1].done) vs $($led.events[2].tried)/$($led.events[2].done)")
-        Check 'detail 里的换行压平成一行(账本是给人翻的，不是日志归档)' (
-            $led.events[1].detail -notmatch "`n" -and $led.events[1].detail -match '\|') $led.events[1].detail
-        # 裁剪：这是一本"回看上几轮"的账，不是日志。留最近的，砍最老的。
-        for ($i = 1; $i -le 8; $i++) {
-            [void](Add-GdRescueRecord -S $noCfg -Game 'ark' -Result ([pscustomobject]@{ Tried = $false; Done = $false; Detail = "凑数 $i" }) -Keep 5)
-        }
-        $led2 = Read-GdJson -Path (Get-GdRescueLedgerPath)
-        Check '超过 Keep 条就砍最老的(这里只留最近 5 条)' (@($led2.events).Count -eq 5 -and @($led2.events)[-1].detail -match '凑数 8') $(
-            "$(@($led2.events).Count) 条，最后一条=$(@($led2.events)[-1].detail)")
-        $fnLedger = (Get-Command Add-GdRescueRecord).Definition
-        Check '账本写不进去只是 WARN 一句，不抛(异常路径上不许再制造一个异常)' (
-            $fnLedger -match 'try \{ Write-GdJson' -and $fnLedger -match '-Level WARN')
-    } finally { Restore-GdTestState }
-    Check 'state 文件已还原' (Test-GdTestStateRestored)
-} else {
-    Check 'lib\vision-rescue.ps1 有 Add-GdRescueRecord(方舟仓库少了它这轮救火没人知道)' $false '没找到这个函数'
-}
+Write-Host "`n[t16] 只问不点的诊断入口(2026-09-26 加强 AI 干预时加的，全程不联网、不起子进程)"
+# 2026-10-28 甲档第二十刀刀③：本节原咬 Add-GdRescueRecord 壳的九格(第一次记账不抛 / Test-Path 守卫 /
+# 落 state\rescue.json 且一次兜底一行 / 归属由调用方写 / tried-done 两个独立 bool / detail 换行压平 /
+# 超 Keep 砍最老 / 写不进只 WARN 不抛 / state 已还原)随壳退役，整节改由下面三处接守——
+#   压平那形：panel-cs --visiontest(Vision.SelfTest.cs:351/353，含 \r\n 那半)；
+#   读-改-写与"缺文件不许惊动 WARN"：--selftest 第 19 节(真写账本文件再读回，version/updated/events 三格
+#     ＋ Keep 60 滑窗各一格)，本刀另在该节补两枚(链自己不许记帐 / context 原样递到问价层)；
+#   名册与形状：--selftest 第 30 节 ark 27 档金样的 H5(六格逐字符)/H6a(条数==rescue-entry 次数)/
+#     H6b(version==1 且 game-target-tag-detail 四格越界判)，其余 20 档钉"零账本"。
+# 本节因此不再真写 state\rescue.json，Save-GdTestState 那对存/还原也一并撤下(没有要还的盘了)。
 
 # tools\vision-ask.ps1 是"只问不点"的排查入口：配好 key 之后不用跑一轮日常，就能看到模型对着这张图怎么说。
 # 它的价值恰恰在于**不动手**，所以这里判的就是"它真的没有点击的手"。

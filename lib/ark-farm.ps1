@@ -31,7 +31,7 @@ function Get-GdArkFightSkipMarkPath { Join-Path $global:GD.State 'ark-fight-skip
 
 # Set-GdArkFightSkipMark 已删(10-25 甲档刀②，docs\rust-core-plan.md §11.134)：lib\ark-daily.ps1 里那枚 'mark'
 # 问槽与白名单 token 同批双删(口径同 B-2c③ 那条 'run')，核内等价体在 tools\rustcore\src\main.rs::drive_mark；
-# probe-arkdrive-rust-golden 的 old／new 两代自同批刀① 起咬该门自带的 a9dea09 帧逐字副本 ⇒ 现树再无读者。
+# probe-arkdrive 门的 old／new 两代自同批刀① 起只咬该门自带的 a9dea09 帧逐字副本 ⇒ 现树再无读者(门已于 10-27 第十九刀整件退役)。
 # 写侧出仓、读侧照旧活：Test-GdArkFightSkipMarkToday 与 Get-GdArkFightSkipMarkPath 仍是 PS 轮读当天认栽标记那一路。
 
 function Test-GdArkFightSkipMarkToday {
@@ -47,7 +47,7 @@ function Test-GdArkFightSkipMarkToday {
 # Get-GdArkStageObsPath 与 Update-GdArkStageObs 已删(10-25 甲档刀②，docs\rust-core-plan.md §11.134)：这两枚是
 # 上面那枚 mark 的同族——lib\ark-daily.ps1 里 'obsrec' 问槽与白名单 token 同批双删，核内等价体在
 # tools\rustcore\src\main.rs::drive_obsrec(账本路径字面、Found=false 不记、周一=1…周日=7、60 条滑窗与
-# "读坏当空账"四样都在核内逐句照旧)；probe-arkdrive-rust-golden 两代咬该门自带的 a9dea09 帧逐字副本 ⇒ 现树再无读者。
+# "读坏当空账"四样都在核内逐句照旧)；probe-arkdrive 门两代只咬它自带的 a9dea09 帧逐字副本 ⇒ 现树再无读者(门已于 10-27 第十九刀退役)。
 # 同族的 'obs'(Get-GdMaaStageObservation，在 lib\maa.ps1)没搬、问槽照旧活；state\ark-stage-weekday-obs.json 的写手自此只有核。
 
 function Get-GdArkItemMaps {

@@ -29,7 +29,7 @@
 #  decide-daily-retry(-Game ark 支)，链体的回放在 tools\rustcore\src\main.rs 的 ark_daily_chain。
 #  PS 侧那条臂连同在原地逐行 # 前缀冻结的旧分流已随 10-24 刀③ 整段出仓，取证见 docs\rust-core-plan.md。
 #  原来由 tools\test-ark.ps1 钉的 `Status -notin @(…)` 字面锚随臂改口到判据真正的家(Orchestration.cs 的
-#  ark 支窗口)，行为对面在 probe-arkdrive 的 retry-stalled 档——补尺先于删件，见 Start-GdArkDaily 上方那段。
+#  ark 支窗口)，行为对面原在 probe-arkdrive 的 retry-stalled 档，10-27 第十九刀起搬进 main.rs 的 --selftest 第 29 节(见 Start-GdArkDaily 上方那段)。
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # ── R3③ 换头(2026-10-06)─────────────────────────────────────────────────────────
@@ -38,7 +38,7 @@
 #  Invoke-GdArkDailyLegacy 连同其函数体已整段出仓——这是决定不是疏漏：判据一枚没动，内置件不在场就
 #  当场抛错，不再有"拨关走原身"那条退路。接线点仍只此一处(ADR §5.4"多处接线=实际不可回滚")。
 #  返回值仍是 hashtable @{Status;Detail;Duration?}，调用方无感；那把换头主闸已随 10-24 刀④ 出仓。
-#  改协议先改 main.rs 再复拍四门(arkskip/live/events/arkdrive)，不要在这里加规则。
+#  改协议先改 main.rs 再复拍在场的门(只剩 probe-connect：probe-arkrun 已随甲档第二十刀退役)与 --selftest(第 18／29／30 节咬这一路)，不要在这里加规则。
 # ──────────────────────────────────────────────────────────────────────────────
 
 function Set-GdArkShopState {
@@ -109,8 +109,8 @@ function Show-GdArkPreview {
 # 判据一枚没动，跳过清单与两句文案在 tools\panel-cs\Orchestration.cs 的 decide-daily-retry(-Game ark)，
 # 链体的编排与重试落地在 tools\rustcore\src\main.rs 的 ark_daily_chain，逐字转写的基线仍取钉位 251bd3c
 # 那份，删前最后一帧的原身在钉位 5bc83b1 的 lib\ark-daily.ps1 里(那一帧本文件的 blob 一字未改)。
-# 行为对面：tools\rustcore\probe-arkdrive-rust-golden.ps1 的 retry-stalled／desk-empty 两档带两格行为
-# 判据(C-retry-relaunch／C-desk-empty-vs-early)——补尺先于删件，因为等值面只拍"两代同不同"。
+# 行为对面(10-27 甲档第十九刀改的家)：tools\rustcore\src\main.rs 的 --selftest 第 29 节——retry-stalled／desk-empty
+# 两档的两格判据(C-retry-relaunch／C-desk-empty-vs-early)逐格搬进核内会话桌，probe-arkdrive 门随即整件退役。
 
 function Start-GdArkDaily {
     <# 单臂调度器：直接走核内驱动档 executor；返回值形同旧 hashtable @{Status;Detail;Duration?}，调用方无感。
@@ -138,12 +138,12 @@ function Invoke-GdArkDailyRust {
        ask 信封(seq/action/params)退出；这里照单执行完，把结果写 res 回执，再起下一轮。
        动作集与旧链逐条对齐(main.rs 的 ark_daily_chain 是事实源；改它=改协议，复拍三门)。
        --state 指到生产同一处 state 目录(B-1a：mark/obsrec/admin 已搬核内进程内真做，
-       写的账落在这里；switch 里那三 case 保留只作白名单完备与回退面，新核不再 ask 它们)。
+       写的账落在这里；那三枚 ask 连同白名单 token 已于 10-25 甲档刀② 双删，新核不再问它们)。
        本函数**不自己造日志**：链上日志全部由 gdcore 侧产生，这里只照原级别回放 ——
        两门对拍靠的正是"回放串与旧侧逐字一致"，这里多打一行就红。
        B-2c② 换了通道：日志不再攒在信封里等收尾(信封 logs 键留而不删、恒为空)，而是按产生顺序
        逐行落进 --log-sink 指的侧信道文件，这里边跑边按字节偏移增量排空再回放。时序没变(动作仍在
-       子进程退出、日志落完之后才执行)，变的只是落点，所以 probe-arkdrive 的 C-logs 面判据一字不改。
+       子进程退出、日志落完之后才执行)，变的只是落点；「留键不删键、恒空数组」这一形现由 main.rs 自检的信封 logs 格钉(原 arkdrive 门 C-logs 面已随第十九刀退役)。
        B-2c③ 起 run 也不再 ask：Invoke-MaaRun 那整段循环在核内真做(RealHost 走 --maa-run 同一套骨架)，
        现场 13 枚参数随 ctx 的 maaRun 交进去(paths 六格＋runtime 六格＋benignMaaErrors，键名与
        config\settings.json 逐字同名)。**取键逐枚点名是硬约束**——$S.runtime 整块里住着视觉兜底的 API key，
@@ -323,11 +323,12 @@ function Invoke-GdArkDailyRust {
                         }
                     }
                     # 10-25 甲档刀②：'mark'／'obsrec'／'admin' 三 case 连同白名单里那三枚 token 一起删净(双删，口径与
-                    # 上面那条 'run' 一字同)——这枚名单的事实源是 probe-arkdrive-rust-golden:753 的 $moved = mark/obsrec/
-                    # admin/run，门头注 :752 逐字在册「old 侧仍出 ask、new 侧在核内做」；核内 drive_mark／drive_obsrec／
-                    # drive_is_admin 早已真做(B-1a)，Rust 驱动档不再问这三枚(实拍：本门 C-asks-removed 格逐场景验过 new 侧
-                    # 一枚 ask 都不出)。桩面留一 case 就等于给"分派漏改"留后门，双删才让它在白名单处当场抛。
-                    # 被删的只是答臂：Test-GdAdmin 真身另有生产读者(install-task.ps1:40／vision-rescue.ps1:328)，一枚没动。
+                    # 上面那条 'run' 一字同)——名单事实源原是 arkdrive 门的 $moved = mark/obsrec/admin/run；门已于
+                    # 10-27 甲档第十九刀整件退役(a9dea09 帧逐字副本同批出仓，实录 docs\rust-core-plan.md)；「new 侧
+                    # 一枚 ask 都不出」改由 main.rs 自检第 18、29 节的 ask 名册格钉，核内 drive_mark／drive_obsrec／
+                    # drive_is_admin 早已真做(B-1a)。桩面留一 case 就等于给"分派漏改"留后门，双删才让它在白名单处当场抛。
+                    # 被删的只是答臂：Test-GdAdmin 真身另有生产读者(install-task.ps1:40／menu.ps1:177／reschedule-daily.ps1:42／vision-ask.ps1:63)，一枚没动；
+                    # 原来那第三枚读者 vision-rescue.ps1:328 随第二十刀刀③ 的编排摘件一起没了，账见 docs\rust-core-plan.md §11.164。
                     'ledger' { $data = [string](Update-GdArkFarmLedger -S $S) }
                     'obs' { $data = Get-GdMaaStageObservation -S $S }
                 }
