@@ -397,12 +397,10 @@ if (Get-Command Get-GdVisionVerdictFromText -ErrorAction SilentlyContinue) {
     # 多候选循环那三格(逐个试/先剔越界/全灭话术)与"账本由调用方点""-Context 递到问价层"两格一并出仓，
     # 前者在第 30 节 ark 27 档金样里有原样的步序，后两枚是本刀新立的第 19 节补尺两格(见 --selftest)。
     $fnRaw = (Get-Command Invoke-GdVisionRaw).Definition
-    $fnAsk = (Get-Command Invoke-GdVisionAsk).Definition
     Check '问价那一层把自动化的处境拼进用户那句话，并且截到 200 字(不塞日志原文)' (
         $fnRaw -match '自动化这边的处境' -and $fnRaw -match '200')
-    # 这一格原来是两半：$fnRescue 那半随编排壳出仓(改由核内补尺②钉"context 键与值原样递到问价层")，
-    # 这里只剩还活着的那半——转发壳把 -Context 交给起子进程那枚。两半不许一起摘：留着的这半有真对面。
-    Check '-Context 从问价壳递到起子进程那层，中间不断线' ($fnAsk -match 'Invoke-GdVisionRaw.*\$Context')
+    # 2026-10-28 甲档第二十二刀：这里原有那枚「-Context 从问价壳递到起子进程那层」随 Invoke-GdVisionAsk 壳
+    # 出仓退役(它唯一吃的 $fnAsk 没了对面)；判据现只住核内补尺②——main.rs 第 19 节钉的是 context 的值本身到了。
 } else {
     Check 'lib\vision-rescue.ps1 存在(方舟仓库少了它兜底就不生效)' $false '没找到 Get-GdVisionVerdictFromText'
 }
