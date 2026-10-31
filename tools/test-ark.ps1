@@ -138,7 +138,7 @@ try {
     $p7 = Resolve-ArkPlan -S $S -Data $fake -Source '假数据' -Now $nowMs -IgnoreShopDone
     Check 'IgnoreShopDone 可回看原结论' ($p7.Mode -eq 'event' -and $p7.EventKey -eq 'zztest-event')
     Check '领空后仍能报出活动 id(供撤销)' ($p6.EventKey -eq 'zztest-event') $p6.EventKey
-    Check '领空回落的提示语用短参数名 -ShopReset' (($p6.Reason -match 'daily-clear\.ps1 -ShopReset(?!\w)') -and ($p6.Reason -notmatch 'ArkShop')) $p6.Reason
+    Check '领空回落的提示语不再带 verb 名(10-30 B-3②-d 刀① 摘掉 body 两枚键，反向钉：出现即红)' (($p6.Reason -notmatch 'daily-clear') -and ($p6.Reason -match '剩余理智改刷长草计划')) $p6.Reason
     $S.ark | Add-Member -NotePropertyName shopDoneStopsEvent -NotePropertyValue $false -Force
     $p8 = Resolve-ArkPlan -S $S -Data $fake -Source '假数据' -Now $nowMs
     Check '开关置 false 后不再拦截' ($p8.Mode -eq 'event')
