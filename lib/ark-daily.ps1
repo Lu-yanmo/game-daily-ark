@@ -167,7 +167,7 @@ function Invoke-GdArkDailyRust {
     # **逐枚点名取键是硬约束**：$S.runtime 整块里住着视觉兜底的 API key，序列化进来就等于把 key 递进核、
     # 递进 journal/ctx 那两本会留盘的账。要什么取什么，多一枚都不许。
     # benignMaaErrors 用 List[string] 累加而不是 @($S.runtime.benignMaaErrors)：那枚键没填时
-    # @($null) 会占成一条空串错误项(真身 maa.ps1:300 同一处坑)；foreach 扫 $null 才是零次。
+    # @($null) 会占成一条空串错误项；foreach 扫 $null 才是零次。
     $benignMaa = New-Object System.Collections.Generic.List[string]
     foreach ($bm in $S.runtime.benignMaaErrors) { $benignMaa.Add([string]$bm) }
     Write-GdJson -Path $ctxFile -Object ([pscustomobject]@{
