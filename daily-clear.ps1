@@ -65,9 +65,9 @@ Write-GdLog (Get-GdCoreReadout)
 [void](Import-GdModules)
 foreach ($libPath in (Get-GdModuleLibPaths)) { . $libPath }
 
-# 单游戏仓库里 Sync-GdEntryVerbs 什么都不做(注册表只有一款 → 不是合体工程)，
-# 提示语保持判定层默认的干净短名 —— 也就是这个入口真能认的 -Ack / -ShopDone / -ShopReset。
-Sync-GdEntryVerbs
+# 单游戏仓库里注册表只有一款 → 不是合体工程，取名函数现问时走回落那一支(11-01 丙形真转接，§11.176 ⑥)，
+# 提示语保持判定层默认的干净短名 —— 也就是这个入口真能认的那套开关名，导出的仓库一个字都不用改。
+# 旧那句"点完库调一次同步件"在这里本来就什么都不做(注册表只一款)，同步件退役之后连这一次空转也没有了。
 
 # 没配置这件事由脚本自己用日志的格式说清楚就走(-TellAndExit)：裸 throw 到了顶层是一屏
 # "Exception: C:\...\common.ps1:120 / Line | ..." 那种内部报错，双击的人只会以为程序坏了。

@@ -54,7 +54,7 @@ function Get-GdArkItemMaps {
     <# MAA 自带 resource/item_index.json → 材料名↔代号两张表(进程内缓存)。
        475 条覆盖常规材料，但装备模组那类新货币不在表里 —— 认不出来的材料由调用方明说，不猜。 #>
     param([Parameter(Mandatory)]$S)
-    # 懒初始化：common.ps1 开着 StrictMode 1.0，直接读未声明的 $global:GdArkItemMaps 会当场报错(和 Get-GdEntryVerbs 同一招)
+    # 懒初始化：common.ps1 开着 StrictMode 1.0，直接读未声明的 $global:GdArkItemMaps 会当场报错(这一招在判定层也曾有一枚同名取表件，那枚已随 11-01 丙形真转接退役)
     if (Get-Variable -Name GdArkItemMaps -Scope Global -ErrorAction SilentlyContinue) { return $global:GdArkItemMaps }
     $n2i = @{}; $i2n = @{}
     $path = Join-GdPath $S.paths.maaDir @('resource', 'item_index.json')
