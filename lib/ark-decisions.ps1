@@ -128,6 +128,27 @@ function Get-GdArkEventProbePath { Join-Path $global:GD.State 'ark-event-probe.j
 function Get-GdArkEventProbe {
     <# 只读：上一轮的活动图自证结论。文件不在/读坏了回 $null —— 判定层据此当"没探过"处理，
        照常拿最后一关当探针，绝不会因为采集失败就把活动图判成没打通(那才是真丢理智)。 #>
+    # ── B-3②-d 刀①(2026-11-01 §11.189 定档)：这半段读改指核，读的还是同一枚 state\ark-event-probe.json ──
+    # 核臂＝read-decision-state 的 probe 那一格(真身 tools\panel-cs\Round.Data.cs::ReadProbe)：
+    #   "文件不在／读坏了／没有 EventKey"三形在核侧同样归一为没答，与这里旧口径逐字一致。
+    # game 恒点名 ark：这枚账本就是 ark 一路独有的(核侧那个文件名也是常量)，别按调用方传的 id 现拼。
+    # 判"核答了没有"用**属性在不在**而不是值在不在：null 在这里是合法读数(＝这一轮没探过)，
+    #   拿它当"核没答"会把自证结论读成空表——那正是"活动图白打"那一形。
+    # 回落臂＝下面那一段，逐字是改指前的原样(含"读坏了也回 null"那一层 try)。
+    $core = $null
+    try {
+        $core = Invoke-GdCli -Verb 'read-decision-state' -Body ([pscustomobject]@{ game = 'ark'; want = @('probe') })
+    } catch { $core = $null }
+    if ($null -ne $core -and $null -ne $core.PSObject.Properties['Probe']) {
+        if ($null -eq $core.Probe) { return $null }
+        return [pscustomobject]@{
+            Date     = [string]$core.Probe.Date
+            EventKey = [string]$core.Probe.EventKey
+            Stage    = [string]$core.Probe.Stage
+            Entered  = [bool]$core.Probe.Entered
+            Evidence = [string]$core.Probe.Evidence
+        }
+    }
     $p = Get-GdArkEventProbePath
     if (-not (Test-Path -LiteralPath $p)) { return $null }
     try { $m = Read-GdJson -Path $p } catch { return $null }
