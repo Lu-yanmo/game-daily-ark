@@ -96,7 +96,7 @@ Register-GdModule ([pscustomobject]@{
             }
             ShopState = { param($S, $Done) Set-GdArkShopState -S $S -Done:([bool]$Done) }
 
-            # ---- 监督 agent(lib\supervisor.ps1)的可选钩子：给了才监督，重启钩子给了才允许干预。----
+# ---- 监督一族的可选钩子(11-02 刀③ 起答方是 C# 宿主批，旧真身 lib\supervisor.ps1 已出仓)：给了才监督，重启钩子给了才允许干预。----
             SupervisorEvidence = {
                 param($S)
                 $P = Get-MaaPaths -S $S
