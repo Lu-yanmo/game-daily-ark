@@ -68,10 +68,10 @@ if (-not (Test-GdPathReady $S.paths.maaDir)) {
 Write-Host "`n[t2] 关卡表 / 校验"
 $table = Get-GdStageTable -S $S
 Check '关卡表非空' ($table.Count -gt 300) "$($table.Count) 条"
-$chk = Test-GdStages -S $S -StageText 'CE-5, LS-5'
+$chk = Invoke-GdCli -Verb 'check-stages' -Body ([pscustomobject]@{ table = $table; stageText = 'CE-5, LS-5' })
 Check '多关卡拆分+去空格' ($chk.Stages.Count -eq 2 -and $chk.Bad.Count -eq 0) $chk.Note
 Check '理智合计' ($chk.Cost -eq ([int]$table['CE-5'] + [int]$table['LS-5'])) "$($chk.Cost)"
-Check '未知关卡能抓出' ((Test-GdStages -S $S -StageText 'XX-9').Bad.Count -eq 1)
+Check '未知关卡能抓出' ((Invoke-GdCli -Verb 'check-stages' -Body ([pscustomobject]@{ table = $table; stageText = 'XX-9' })).Bad.Count -eq 1)
 
 Write-Host "`n[t3] MAA 队列改写(仅预览，不落盘)"
 $cfgPath = Join-GdPath $S.paths.maaDir @($S.paths.maaConfig)
@@ -109,7 +109,7 @@ Check '坏关卡代号会被拦住' ($r4 -and $r4 -match 'NOT-A-STAGE')
 Write-Host "`n[t5] 方舟判定链路(会联网拉一次活动接口)"
 $a = Get-ArkEvent -S $S
 Check '返回模式合法' (@('idle', 'event', 'event-pending') -contains $a.Mode) "mode=$($a.Mode) stage=$($a.Stage)"
-Check '有理智计划' ($a.Stage -and (Test-GdStages -S $S -StageText ([string]$a.Stage)).Bad.Count -eq 0) (Test-GdStages -S $S -StageText ([string]$a.Stage)).Note
+Check '有理智计划' ($a.Stage -and (Invoke-GdCli -Verb 'check-stages' -Body ([pscustomobject]@{ table = $table; stageText = ([string]$a.Stage) })).Bad.Count -eq 0) (Invoke-GdCli -Verb 'check-stages' -Body ([pscustomobject]@{ table = $table; stageText = ([string]$a.Stage) })).Note
 # 这条判据在 2026-10-12 第 1 刀**反了向**：旧口径是"没确认就整轮不烧理智"，
 # 新口径是"今天自证进不去 → 当日改刷长草套餐，理智照烧"(用户原话「活动要打…没打通就别空烧」)。
 Check 'event-pending 当日仍烧理智(改刷长草，不空放)' (-not ($a.Mode -eq 'event-pending' -and -not $a.ClearSanity)) "mode=$($a.Mode) clear=$($a.ClearSanity)"
@@ -313,17 +313,17 @@ $asstExcerpt = @'
 [2026-09-24 18:23:26.320][INF][Px29472][Tx36949] Assistant::append_callback | SubTaskStart {"class":"asst::ProcessTask","details":{"action":"ClickSelf","algorithm":"MatchTemplate","exec_times":316,"max_times":2147483647,"result":{"rect":[611,652,58,58],"score":0.991275,"template":"GameStart.png"},"task":"GameStart"},"subtask":"ProcessTask","taskchain":"StartUp","taskid":0}
 [2026-09-24 18:23:26.320][TRC][Px29472][Tx36949] Win32Controller click: (629, 701)
 '@
-$asstHint = Get-MaaAsstStuckHint -Text $asstExcerpt
+$asstHint = (Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = $asstExcerpt })).Hint
 Check '能点名卡住的子任务 + 重复次数 + 最后点击位置' (
     $asstHint -match 'StartUp@GameStart' -and $asstHint -match '316' -and $asstHint -match '629,701') $asstHint
-Check '认不出任务时不给线索(不编造)' ((Get-MaaAsstStuckHint -Text '[INF] asst::Controller::connect 123') -eq '')
-Check '空文本不炸' ((Get-MaaAsstStuckHint -Text '') -eq '')
+Check '认不出任务时不给线索(不编造)' (((Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = '[INF] asst::Controller::connect 123' })).Hint) -eq '')
+Check '空文本不炸(对面空文本自证：不起判定进程的那半已随壳出仓，这里量的是 verb 对空白的答法)' (((Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = '' })).Hint) -eq '')
 # 只点了一两次 = 正常推进，不该跟着喊"被挡住了"(那条结论只在反复点同一处时才成立)
-$justOne = Get-MaaAsstStuckHint -Text (@'
+$justOne = (Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = (@'
 {"cur_task":"RecruitBegin","details":{"cur_retry":0,"retry_times":50}}
 SubTaskStart {"details":{"exec_times":1,"task":"RecruitBegin"}}
 Win32Controller click: (400, 300)
-'@)
+'@) })).Hint
 Check '刚开始的子任务不会被说成"反复点击而界面不动"' (
     $justOne -match 'RecruitBegin' -and $justOne -notmatch '反复点击') $justOne
 # 老配置没这个键也要能跑：路径有默认值，且判定不依赖它
@@ -338,7 +338,7 @@ Check 'settings 缺 maaAsstLog 时路径仍有默认值(debug\asst.log)' (
     (Get-MaaPaths -S ([pscustomobject]@{ paths = $pathsCopy })).AsstLog
 $liveAsst = (Get-MaaPaths -S $S).AsstLog
 if (Test-Path -LiteralPath $liveAsst) {
-    Write-Host "  本机 asst.log 末尾现况：$(Get-MaaAsstStuckHint -Text ((Get-Content -LiteralPath $liveAsst -Tail 800 -Encoding utf8) -join "`n"))" -ForegroundColor DarkGray
+    Write-Host "  本机 asst.log 末尾现况：$((Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = ((Get-Content -LiteralPath $liveAsst -Tail 800 -Encoding utf8) -join "`n") })).Hint)" -ForegroundColor DarkGray
 }
 
 Write-Host "`n[t13] 视觉兜底(全程不联网、不截图、不点任何东西)"
@@ -459,7 +459,7 @@ Win32Controller click: (643, 666)
 Win32Controller click: (647, 670)
 Win32Controller click: (638, 663)
 '@
-$stDead = Get-MaaAsstStuckState -Text $asstDead
+$stDead = Invoke-GdCli -Verb 'parse-asst-state' -Body ([pscustomobject]@{ text = $asstDead })
 Check '状态里四个数都数得到(任务/重试到第几/点击行/注入行)' (
     $stDead.Task -eq 'StartUp@GameStart' -and $stDead.Exec -eq 269 -and $stDead.Clicks -eq 3 -and $stDead.Inject -eq 0) $(
     "$($stDead.Task) exec=$($stDead.Exec) clicks=$($stDead.Clicks) inject=$($stDead.Inject)")
@@ -470,11 +470,11 @@ asst::Win32Controller::inject_input_event | enter
 asst::Win32Controller::inject_input_event | leave, 14 ms
 asst::Win32Controller::inject_input_event | enter
 '@
-$stSwipe = Get-MaaAsstStuckState -Text $asstSwipe
+$stSwipe = Invoke-GdCli -Verb 'parse-asst-state' -Body ([pscustomobject]@{ text = $asstSwipe })
 Check '注入行只在滑动类子任务里出现，数得到就不等于"点击通道活着"' (
     $stSwipe.Task -eq 'InfrastTimePhase' -and $stSwipe.Inject -eq 2 -and $stSwipe.Clicks -eq 0) $(
     "task=$($stSwipe.Task) inject=$($stSwipe.Inject) clicks=$($stSwipe.Clicks)")
-$hintDead = Get-MaaAsstStuckHint -Text $asstDead
+$hintDead = (Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = $asstDead })).Hint
 Check '点了没动时两种可能都留着，不再把某个原因写成定论' (
     $hintDead -match '窗口挡' -and $hintDead -match '前台|会话') $hintDead
 Check '结论里不出现"通道退化/不吃 PostMessage"那句(它已被证伪)' (
@@ -482,7 +482,7 @@ Check '结论里不出现"通道退化/不吃 PostMessage"那句(它已被证伪
 Check '任务名/重试次数/最后点击位置三个字段照常带上' (
     $hintDead -match 'StartUp@GameStart' -and $hintDead -match '269' -and $hintDead -match '638,663')
 Check '空片段不给状态、也不给结论' (
-    (-not (Get-MaaAsstStuckState -Text '').Task) -and ((Get-MaaAsstStuckHint -Text '') -eq ''))
+    (-not (Invoke-GdCli -Verb 'parse-asst-state' -Body ([pscustomobject]@{ text = '' })).Task) -and (((Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = '' })).Hint) -eq ''))
 # 探测函数：纯读，不动窗口、不点东西。锁屏与否按"输入桌面叫什么"判，读不到就说读不到(别把未知说成锁屏)。
 if (Get-Command Get-GdArkDesktopState -ErrorAction SilentlyContinue) {
     $st = Get-GdArkDesktopState -Hwnd $null

@@ -2,14 +2,14 @@
 #
 # ── 冻结(2026-09-26，PS→C# 批次 3；2026-10-27 随甲档第四刀刀②改口)──────────────
 # 本体已迁到 tools\panel-cs\Processes.cs(契约见 docs\ps-migration-batch0.md)：
-#   Get-MaaAsstStuckState → verb parse-asst-state(四个"当前状态"的抠法在 C#；inject 只反映滑基建的老教训也在那)
-#   Get-MaaAsstStuckHint  → verb parse-asst-hint(线索话术整句在 C#)
+#   Get-MaaAsstStuckState → verb parse-asst-state(四个"当前状态"的抠法在 C#；inject 只反映滑基建的老教训也在那) ⚠ 11-02 转接刀：这枚壳已出仓，门侧改指 CLI 出口。
+#   Get-MaaAsstStuckHint  → verb parse-asst-hint(线索话术整句在 C#) ⚠ 同批出仓；两句自此只剩来历陈述，别再当"本文件里还有这枚"读。
 #   Set-MaaDailyConfig 的规则段 → verb plan-maa-queue(队列开关/关卡校验/farm 两档九项/ExpectedChains
 #       的 Select-Object -Unique 大小写敏感去重，全部在 C#；本壳保留：在跑检查、读写盘、备份、回读核对、日志染色)
 # 所以：改规则/文案请改 Processes.cs 并跑 panel-cs --proctest 对真值，不要在这里加规则。
 # 现势：监控循环 Invoke-MaaRun(旧 :220-620)已整函数出仓——循环骨架在核内 maa_run<H: MaaHost>
-# (tools\rustcore\src\main.rs，判据外调 C#，生产 = maa_run + RealHost)；本文件只剩
-# Get-MaaPaths/Start-GdArkClient/Stop-MaaAndGame(起进程、启动器页、进程树收尾)。
+# (tools\rustcore\src\main.rs，判据外调 C#，生产 = maa_run + RealHost)。⚠ 11-02 转接刀后这半句作废：
+# 本文件剩下的是"起进程、启动器页、进程树收尾、读现场、改写队列"那几枚壳，逐枚账在 tools\ps-map\ps-map.tsv，这里不点名。
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # ── 追加冻结(2026-09-27，PS→C# 批次 5；2026-10-27 随摘件改口)──────────────────
@@ -110,29 +110,6 @@ function Get-GdMaaStageObservation {
         Survivors  = @($d.Survivors)
         Selected   = [string]$d.Selected
     }
-}
-
-function Get-MaaAsstStuckState {
-    <#
-      转发壳(parse-asst-state)：四个"当前状态"的抠法与 inject≠点击通道的实测教训都在 Processes.cs 注释里。
-      返回形状保持旧 hashtable @{Task;Exec;Clicks;Inject}(核内 maa_run 侧按键取用)。
-      空文本壳内早退：轮询里这是高频路径，别为空串起进程。
-    #>
-    param([string]$Text)
-    if ([string]::IsNullOrWhiteSpace($Text)) { return @{ Task = ''; Exec = 0; Clicks = 0; Inject = 0 } }
-    $d = Invoke-GdCli -Verb 'parse-asst-state' -Body ([pscustomobject]@{ text = [string]$Text })
-    return @{ Task = [string]$d.Task; Exec = [int]$d.Exec; Clicks = [int]$d.Clicks; Inject = [int]$d.Inject }
-}
-
-function Get-MaaAsstStuckHint {
-    <#
-      转发壳(parse-asst-hint)：从 asst.log 挑"卡在哪个子任务、重复多少次、最后点到哪"的话术本体在 Processes.cs，
-      为什么要单独读 asst.log、以及两句被推翻的错结论(中秋窗口/PostMessage 退化)也记在那边注释里 —— 别加回来。
-    #>
-    param([string]$Text)
-    if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
-    $d = Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = [string]$Text })
-    return [string]$d.Hint
 }
 
 function Set-MaaDailyConfig {
