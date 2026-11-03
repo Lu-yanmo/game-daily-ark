@@ -76,6 +76,8 @@ Register-GdModule ([pscustomobject]@{
             }
             Stop      = {
                 param($S)
+                # ⚠ 刀①(2026-11-03)：round 的 stop:ark 已改核内直答(直接问 stop-maa-and-game)，上面那层
+                # PS 臂已摘 ⇒ 这一钩子格自此没有 round 消费面，体暂留(1eq.④ 摘臂不摘格)，去留归后续刀。
                 # 转接刀·方舟拉起族(11-03)：Stop-MaaAndGame 真身出仓，这一枚钩子与 lib\ark-daily.ps1 的 'stop' 答臂
                 # 各自现问同一把核内出口(stop-maa-and-game)。两处不合成一枚 PS 壳是决定：壳回来＝事实源又分家。
                 # 完整判语(含 Lines 回放丢档位那笔账)写在 ark-daily.ps1 那一侧，这里不重述。
