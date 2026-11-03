@@ -280,12 +280,14 @@ function Invoke-GdArkDailyRust {
                     'desk' { $data = [string](Get-GdInputDesktopName) }
                     'svdetail' {
                         # 旧侧为把"屏保当时装着什么"写进早退原因的那整段(try/catch 内部吞异常、恒返 string)
+                        # 现问两枚核内出口(read-screensaver-config ／ resolve-screensaver-verdict)：三枚 PS 壳
+                        # (Get-GdScreensaverConfig／Who／Verdict)已随转接刀·屏保稳态族出仓，这一路是唯一事实源在核内。
+                        # ⚠ Found:false 折成 cfg=null，读不到就说"判断不了"，不许冒充 none。
                         $svTxt = ''
                         try {
-                            if (Get-Command Get-GdScreensaverVerdict -ErrorAction SilentlyContinue) {
-                                $svv = Get-GdScreensaverVerdict -Cfg (Get-GdScreensaverConfig)
-                                if ($svv) { $svTxt = [string]$svv.Detail }
-                            }
+                            $sd = Invoke-GdCli -Verb 'read-screensaver-config' -Body ([pscustomobject]@{})
+                            $svv = Invoke-GdCli -Verb 'resolve-screensaver-verdict' -Body ([pscustomobject]@{ cfg = $(if ($sd.Found) { $sd } else { $null }) })
+                            if ($svv) { $svTxt = [string]$svv.Detail }
                         } catch { $svTxt = '' }
                         $data = $svTxt
                     }
