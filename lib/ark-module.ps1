@@ -76,7 +76,11 @@ Register-GdModule ([pscustomobject]@{
             }
             Stop      = {
                 param($S)
-                Stop-MaaAndGame -S $S
+                # 转接刀·方舟拉起族(11-03)：Stop-MaaAndGame 真身出仓，这一枚钩子与 lib\ark-daily.ps1 的 'stop' 答臂
+                # 各自现问同一把核内出口(stop-maa-and-game)。两处不合成一枚 PS 壳是决定：壳回来＝事实源又分家。
+                # 完整判语(含 Lines 回放丢档位那笔账)写在 ark-daily.ps1 那一侧，这里不重述。
+                $d = Invoke-GdCli -Verb 'stop-maa-and-game' -Body ([pscustomobject]@{})
+                foreach ($l in @($d.Lines)) { Write-GdLog ([string]$l) }
                 # MAA 的视觉/识别子进程偶尔留在后台，原来在入口的 finally 里无条件杀；
                 # 挪进这一路的收尾钩子后，只会在真跑过方舟的轮里执行(更合理，也不会碰不到就报错)
                 Get-Process -Name 'MaaAgentBinary' -ErrorAction SilentlyContinue | ForEach-Object { try { $_.Kill() } catch { } }

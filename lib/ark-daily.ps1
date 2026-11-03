@@ -98,7 +98,8 @@ function Show-GdArkPreview {
     $prev.Changes | ForEach-Object { Write-GdLog "  MAA：$_" }
     if (Get-GdMapValue $Decision 'Farm') { Write-GdLog "  材料补刷：$($Decision.Farm.Reason)(档位=$($Decision.FarmMode))" }
     $pattern = if ($S.ark.windowTitlePattern) { [string]$S.ark.windowTitlePattern } else { '明日方舟|Arknights' }
-    # 同 Start-GdArkClient：预览也要按进程名过滤，别让浏览器标签页冒充"端游窗口已存在"
+    # 同核内 start-ark-client 的路径闸与窗口查找(旧 Start-GdArkClient 真身随转接刀·方舟拉起族出仓)：
+    # 预览也要按进程名过滤，别让浏览器标签页冒充"端游窗口已存在"
     $arkName = if ($S.paths.arknightsExe) { [System.IO.Path]::GetFileNameWithoutExtension([string]$S.paths.arknightsExe) } else { $null }
     $win = Get-GdWindowByTitle -Pattern $pattern -ProcessName $arkName
     Write-GdLog ("  端游窗口：" + $(if ($win) { "已存在 [$($win.Name)#$($win.Id)] $($win.Title)" } else { "没有 → 会先启动 $($S.paths.arknightsExe) 再让 MAA 连" }))
@@ -310,11 +311,32 @@ function Invoke-GdArkDailyRust {
                         $data = [pscustomobject]@{ changes = @($c.Changes); chains = @($c.ExpectedChains) }
                     }
                     'entryverb' { $data = [string](Get-GdEntryVerb -Game ([string]$prm.game) -Verb ([string]$prm.verb)) }
-                    'launch' { $data = [bool](Start-GdArkClient -S $S) }
+                    'launch' {
+                        # 转接刀·方舟拉起族(11-03)：Start-GdArkClient／Wait-GdArkLauncherReady 两枚真身出仓，这一路自此
+                        # 唯一事实源在核内 Chain.cs::StartArkClient(它把"等窗口＋暖身＋启动器更新页的循环与真点击"一并干完)。
+                        # ⚠ 语义闸：只认 [bool]$d.Started —— Done 在"等到窗口但没进游戏"那一档照样是真，取错就把 10-11
+                        # 那次「对着更新页把五个任务全跑错(14m23s)」的缺陷放回来。核内自检测不到 PS，这一格由 tools\test-ark.ps1 钉形状。
+                        # ⚠ Body 传空块：核自己现场读 config\settings.json(与这里的 $S 同源)；不许把 $S 整块序列化进临时 JSON——
+                        # 视觉兜底那把 key 与 webhook 那类本机专属值一旦落盘就不是"读配置"，是"抄配置"(本文件全文不许出现那枚键名，
+                        # 它由 tools\test-ark.ps1 的「壳侧一个字都不碰视觉 API key」那一格按**整份文本**扫，注释也算命中)。
+                        $d = Invoke-GdCli -Verb 'start-ark-client' -Body ([pscustomobject]@{})
+                        # 话术回放：核内 Say 把档位只写进自己的 GdLog、Lines 里只有正文(Chain.cs:221-227 现读) ⇒ 这一路的 WARN/STEP/OK 自此统一落默认档。
+                        foreach ($l in @($d.Lines)) { Write-GdLog ([string]$l) }
+                        $data = [bool]$d.Started
+                    }
                     # B-2c③：'run' case 与白名单里那枚一起删净(双删)——Invoke-MaaRun 已在核内真做(maa_run + RealHost)，
                     # 现场那 13 枚参数从 ctx 的 maaRun 取。桩面留一 case 就等于给"分派漏改"留后门：
                     # 真核不再 ask run，若两侧有一边漏改，这里会当成成功回执吞掉，双删才让它在白名单处当场抛。
-                    'stop' { Stop-MaaAndGame -S $S; $data = $true }
+                    'stop' {
+                        # 转接刀·方舟拉起族(11-03)：Stop-MaaAndGame 真身出仓，这一路唯一事实源在核内
+                        # Chain.cs::StopMaaAndGame(两档分开的开关 quitAssistantAfter／closeArknightsAfter 各自一把进程树收尾，
+                        # 只有真关掉才吭那一句)。⚠ 回执形状：核给的 Done 恒真(两档都关着也叫做完)、进程数只进话术不进键，
+                        # 而 ask 那一侧(fire 方 main.rs DriveFx::stop)本就 |d| () 不收数据 ⇒ $data 照旧恒真，契约没动。
+                        # 话术回放同 'launch' 那格的账；差别只在核里那两句本来就是 INFO 档(Chain.cs:390/397 现读)，丢档位这一路没有差异。
+                        $d = Invoke-GdCli -Verb 'stop-maa-and-game' -Body ([pscustomobject]@{})
+                        foreach ($l in @($d.Lines)) { Write-GdLog ([string]$l) }
+                        $data = $true
+                    }
                     'sleep' { Start-Sleep -Seconds ([int]$prm); $data = $true }
                     'skip' {
                         $sv = Get-GdMaaFightSkip -S $S

@@ -305,6 +305,32 @@ Check '画面变没变的四形与 detail 压平两形住在 C# 自检里(Vision
     ($arkVisionCs.Contains('只有一格抖 1 档')) -and ($arkVisionCs.Contains('两次画面格数不同')) -and
     ($arkVisionCs.Contains('detail 换行压平')))
 
+# ── 转接刀·方舟拉起族(11-03)补尺格：三处消费面各自现问两枚核内出口 ──────────────
+# 为什么钉"现问的形状"而不是钉结果：这一族的语义闸是**取回执里哪一枚键**——start-ark-client 的
+# Done 恒真(路径闸过了就叫做完)，Started 才是"真进到了游戏"；取错就放回 10-11 那次对着更新页
+# 把五个任务全跑错(14m23s)的缺陷。核内自检(Round.SelfTest 第 21/25 节)钉的是核怎么答，钉不到
+# PS 这一侧怎么取 ⇒ 这一格只能由本套件钉源码形状(与本文件 ②-d 刀① 那批 .Contains() 同形)。
+# Body 那半是安全边界：两枚都传空块，核自己现场读 config\settings.json(与 $S 同源)；整块序列化
+# $S 会把 visionApiKey／webhook 那类本机专属值落进临时 JSON——那是"抄配置"不是"读配置"。
+$arkModulePs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\ark-module.ps1') -Raw -Encoding utf8
+Check '拉起答臂现问 start-ark-client 且只认 Started(不取 Done——Done 在那一路恒真)' (
+    ($arkDrivePs.Contains("Invoke-GdCli -Verb 'start-ark-client' -Body ([pscustomobject]@{})")) -and
+    ($arkDrivePs.Contains('$data = [bool]$d.Started')) -and (-not $arkDrivePs.Contains('$data = [bool]$d.Done')))
+Check '关闭两处各自现问 stop-maa-and-game(链体答臂与 ark-module 的 Stop 钩子；不合成一枚 PS 壳＝事实源不分家)' (
+    ($arkDrivePs.Contains("Invoke-GdCli -Verb 'stop-maa-and-game' -Body ([pscustomobject]@{})")) -and
+    ($arkModulePs.Contains("Invoke-GdCli -Verb 'stop-maa-and-game' -Body ([pscustomobject]@{})")))
+Check '两路都回放核内话术 Lines(一句都不丢；档位随子进程 stdout 被 Invoke-GdCli 丢掉这笔账登记在下面三格退役锚里)' (
+    (@(([string]$arkDrivePs + [string]$arkModulePs) -split "`n" |
+        Where-Object { $_ -match 'foreach \(\$l in @\(\$d\.Lines\)\) \{ Write-GdLog \(\[string\]\$l\) \}' }).Count -eq 3))
+# 同一批的「退役不回潮」负锚（形状照上面刀③ 那格）：lib\maa.ps1 那三枚真身（Wait-GdArkLauncherReady／
+# Start-GdArkClient／Stop-MaaAndGame）整件出仓后，这一路的唯一事实源在 tools\panel-cs\Chain.cs。
+# 这一格不防功能缺失（功能由核内自检钉），防的是"有人把定义搬回 PS 侧"——那会让核内一份＋PS 一份那本双账复活。
+$arkMaaPs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\maa.ps1') -Raw -Encoding utf8
+Check '拉起族三枚真身的定义不在现树 PS 侧(双删是回归抓器：起进程／启动器页／进程树收尾只住核内 Chain.cs 一处)' (
+    (-not $arkMaaPs.Contains('function Wait-GdArkLauncherReady ')) -and
+    (-not $arkMaaPs.Contains('function Start-GdArkClient ')) -and
+    (-not $arkMaaPs.Contains('function Stop-MaaAndGame ')))
+
 Write-Host "`n[t12] asst.log 停滞线索(gui.log 静默时唯一看得见的东西)"
 # 2026-09-24 18:00 那轮：gui.log 22 分钟一个字没有，asst.log 里 StartUp@GameStart 的 exec_times 从 1 涨到 316。
 # 断言用的是当晚日志的真实片段(去掉无关字段)，这样 MAA 改了行格式会立刻在这里红，而不是又在当晚才发现。
