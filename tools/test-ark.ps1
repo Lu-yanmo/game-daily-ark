@@ -236,7 +236,9 @@ Show-GdCommonTailChecks
 $orchArkCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Orchestration.cs') -Raw -Encoding utf8
 $arkRetryWin = [regex]::Match($orchArkCs, '(?s)if \(EqS\(game, "ark"\)\)(?<win>.*?)else if \(EqS\(game, "r1999"\)\)').Groups['win'].Value
 Check '方舟重试也会跳过 unknown-format' (($arkRetryWin -match '"ok"') -and ($arkRetryWin -match '"not-started"') -and ($arkRetryWin -match '"unknown-format"') -and ($arkRetryWin -match '收尾后重试一次'))
-. (Join-Path $PSScriptRoot '..\lib\ark-daily.ps1')   # test-lib 现在按清单把编排层也点进来了(2026-09-26)；这条留着只为"工程被裁时这里还能自己点一次"，重复 dot 只是重新定义同名函数，无副作用
+# 11-04 转接刀·运行面刀⑦ 笔(c/d) 作废登记①：这里原本 dot 一份 lib\ark-daily.ps1(编排岛)。那件整件出仓，
+# 这条 dot 随它一起没了——不是"删掉一行留个注释"，是它点的那件在仓里从此不存在，留着当场抛红。
+# 上面那句"重复 dot 只是重新定义同名函数，无副作用"自此按历史引文读：它说的那件在仓外。
 # 2026-09-24 06:00 那一坑(重试前先 Stop-MaaAndGame 把端游也关了，而"拉端游"那句写在重试闭包外面 ⇒ 重试那轮
 # 只有 MAA 起来、游戏没起来，白烧一轮)与 2026-09-26 那两条桌面分支(屏保占住 → not-started 早退、一个端游不拉；
 # 桌面名读不到 '' = 不知道 → 不许据此杀正常路)：判据的家在 5bc83b1 补进 probe-arkdrive 门的 retry-stalled／
@@ -251,26 +253,51 @@ Check '方舟重试也会跳过 unknown-format' (($arkRetryWin -match '"ok"') -a
 # build.ps1/Cargo*/src，等值门要 git 工作树与双代 gdcore，玩家树里既没那把尺也没造尺的料)。今天读的两份
 # ——lib\ark-daily.ps1 与 tools\rustcore\src\main.rs——三棵树都在场，所以合回无条件一档：判据没放宽，
 # 只是"跳过"那一形不再有对象。四格形状照 test-r1999 在 第十六刀 立的静态锚。
-$arkDrivePs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\ark-daily.ps1') -Raw -Encoding utf8
+$arkRoundPs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\rust-round.ps1') -Raw -Encoding utf8
+$arkRoundCode = ($arkRoundPs -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
 $arkCoreRs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'rustcore\src\main.rs') -Raw -Encoding utf8
 $arkVisionCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Vision.SelfTest.cs') -Raw -Encoding utf8
 Check 'arkdrive 门两档的行为判据已在核内 --selftest 第 29 节(门退役后尺住在代码里)' (
     ($arkCoreRs.Contains('第 29 节：arkdrive 门退役四组真空档补尺')) -and ($arkCoreRs.Contains('C-retry-relaunch')) -and
     ($arkCoreRs.Contains('C-desk-empty-vs-early')))
-Check 'ark executor 的 ask 白名单仍是十一枚(与核内 DriveFx 动作名逐字同源，改一侧必改另一侧)' ($arkDrivePs.Contains("@('desk', 'svdetail', 'takeover', 'cfg', 'entryverb', 'launch', 'stop', 'sleep', 'skip', 'ledger', 'obs')"))
-Check 'ark executor 里没有复活 run／mark／obsrec／admin 任一枚 case(双删是回归抓器：四枚全在核内真做)' (
-    (-not $arkDrivePs.Contains("'run' {")) -and (-not $arkDrivePs.Contains("'mark' {")) -and
-    (-not $arkDrivePs.Contains("'obsrec' {")) -and (-not $arkDrivePs.Contains("'admin' {")))
-Check 'ark 那一路的信封 role 字面仍在(壳认账本是谁的；门里那枚校验随门一起没了)' ($arkDrivePs.Contains('R3-drive-ark-daily'))
-# ctx 的**写侧**半边(门 :825 那句「逐枚点名取键那条硬约束就在这里验收」)：读侧取值由 --selftest 第 20 节钉，
-# 这里钉的是壳往 ctx 里塞了什么——runtime 那七枚必须逐枚点名取，而整块 $S.runtime 里住着视觉兜底的 API key，
-# 所以 ark-daily.ps1 全文不许出现那枚键名(出现＝有人把整块序列化进账)。
-Check 'ctx 的 runtime 七枚仍逐枚点名取键(不整块序列化 $S.runtime)' (
-    ($arkDrivePs.Contains('[int]$S.runtime.arkStartTimeoutMinutes')) -and ($arkDrivePs.Contains('[int]$S.runtime.arkTimeoutMinutes')) -and
-    ($arkDrivePs.Contains('[int]$S.runtime.stallTimeoutMinutes')) -and ($arkDrivePs.Contains('[int]$S.runtime.idleConfirmSeconds')) -and
-    ($arkDrivePs.Contains('[bool]$S.runtime.abortOnMaaStallWarning')) -and ($arkDrivePs.Contains('[int]$S.runtime.visionMaxRescue')) -and
-    ($arkDrivePs.Contains('benignMaaErrors')) -and ($arkDrivePs.Contains('= $benignMaa')))
-Check 'ark 壳侧一个字都不碰视觉 API key(visionApiKey 不许进 ctx/journal 那两本留盘的账)' (-not $arkDrivePs.Contains('visionApiKey'))
+# 11-04 转接刀·运行面刀⑦ 笔(c/d) 作废登记②：这里原本有三格(ark executor 的 ask 白名单十一枚／run·mark·obsrec·admin
+# 四枚 case 不许复活／信封 role 字面 R3-drive-ark-daily 仍在)，量的是编排岛 lib\ark-daily.ps1 里那台**驱动档**
+# executor 的源码形状。岛整件出仓后 PS 侧没有那台 executor，三格当场没有桌子，逐枚写下它们不再量什么、不静默删：
+#   · 十一枚那本是驱动档的数。轮档件现拍的 case 名册只有五枚(round-elevate／round-supervisor-start／
+#     round-supervisor-stop／updgate／audit)，而两件头注本来就明写「不要把驱动档那十四枚白名单当这枚名册用，
+#     那是另一族的数」——不同族的两本名册从不通约，所以这三格**搬不了靶**：硬搬等于把轮档那本当驱动档那本用。
+#   · run／mark 那几枚动作的真身在核内(--selftest 第 29 节那批钉着)，家一字未动；变的只是"PS 侧不再有人
+#     对着它们写 switch"。
+#   · 信封 role 字面随 executor 一起出仓；驱动档那本信封自此没有 PS 侧的写信人，核内 --drive-ark-daily 成
+#     死出口候选(§11.235 已登记，账记在"名册枚数"那侧、不记在净行数)。
+# 上面那句「今天读的两份——lib\ark-daily.ps1 与 tools\rustcore\src\main.rs」自本批改按历史引文读：今日读的
+# 两份是 lib\rust-round.ps1 与 tools\rustcore\src\main.rs，"三棵树都在场⇒合回无条件一档"那条判据一字未动。
+# ctx 的**写侧**半边(原门 :825 那句「逐枚点名取键那条硬约束就在这里验收」)：读侧取值由 --selftest 第 20 节钉，
+# 这里钉的是**装配 ctx 的那一侧**往 ctx 里塞了什么——runtime 那批键必须逐枚点名取，而整块 $S.runtime 里住着
+# 视觉兜底的 API key，所以那一侧全文不许把整块序列化进账。判据没动，家从编排岛换成轮档件(搬靶)；末那枚的
+# 等号右值按对面现量代改：旧壳里那枚累加器叫 $benignMaa，轮档件里叫 $benign——取的是"逐枚点名后累加"这个形。
+# ⚠ 收紧一格(mutation m1 现场教出来的)：原先写成 .Contains('[int]$S.runtime.stallTimeoutMinutes') 是**前缀锚**——
+# 对面把右值改成 stallTimeoutMinutesXX 照样命中；m1 实跑交回 207/0 假绿(现拍在 ship-1026\raw\k813 那本 log)，
+# 这格对"取错键名"当场没牙。自此两重收窄：
+#   · 整行钉：载荷里的键名与右值 $S.runtime.<同名键>必须逐枚**相等**且行尾就到，多一个字符即红——
+#     "左右同名"这一半本来就是"逐枚点名"的语义，前缀锚把它量成了"出现过这段字面"；
+#   · 按函数体钉：轮档件里 stallTimeoutMinutes 与 visionMaxRescue 在两枚载荷(maaRun／m9aRun)里各出现一次，
+#     全文钉会让 m9aRun 那枚替 maaRun 顶包(同一行形状两枚都有)，所以靶缩进 Get-GdRoundMaaRunPayload 本体。
+# 收窄后同一发 m1 复拍：206/1，FAIL 当场点名 stallTimeoutMinutes(k814 那本 log)——这格自此有牙。
+$arkMaaRunBody = [regex]::Match($arkRoundPs, '(?s)function Get-GdRoundMaaRunPayload \{.*?\r?\n\}').Value
+$arkCtxBad = @()
+foreach ($arkCtxKey in @('arkStartTimeoutMinutes', 'arkTimeoutMinutes', 'stallTimeoutMinutes', 'idleConfirmSeconds', 'abortOnMaaStallWarning', 'visionMaxRescue')) {
+    if ($arkMaaRunBody -notmatch ('(?m)^\s*' + $arkCtxKey + '\s*=\s*\[(int|bool)\]\$S\.runtime\.' + $arkCtxKey + '\s*$')) { $arkCtxBad += $arkCtxKey }
+}
+Check 'ctx 的 maaRun 载荷逐枚点名取键且左右同名(按函数体整行钉；不整块序列化 $S.runtime；11-04 笔(c/d) 搬靶到轮档件)' (
+    ($arkCtxBad.Count -eq 0) -and ($arkMaaRunBody -match '(?m)^\s*benignMaaErrors\s*=\s*\$benign\s*$') -and
+    ($arkMaaRunBody.Contains('foreach ($bm in $S.runtime.benignMaaErrors)'))) ($arkCtxBad -join ',')
+# 负锚自此分两副眼镜(11-04 笔(c/d) 新形，同 §「锚不是调用」那笔账的反面)：轮档件里 visionApiKey 的命中现拍全在
+# 注释里(讲"取键逐枚点名是硬约束"、讲"整枚 settings 不进信封"那几处)，把旧壳上那格全文负扫直接搬靶会当场假红。
+# 判据一个字没改：不许出现的是**代码面**。正半那枚是这格自己的自证(剥注释这招真在生效)，它若因为有人删掉那些注释
+# 而红，该改的是这格的取法、不是那句判据。——这里不写命中枚数：枚数不进注释，头注多一处理由句就会让这句陈旧。
+Check '轮档件的代码面一个字都不碰视觉 API key(visionApiKey 不许进 ctx/journal 那两本留盘的账；负锚按剥注释后抓)' (
+    (-not $arkRoundCode.Contains('visionApiKey')) -and ($arkRoundPs.Contains('visionApiKey')))
 # 2026-10-27 甲档第四刀刀②：Invoke-MaaRun 真身(lib\maa.ps1 旧 :220-620)整函数出仓——
 # 循环骨架进核(maa_run + RealHost，tools\rustcore\src\main.rs)，判据/话术唯一事实源在
 # tools\panel-cs\RunLoops.cs／Orchestration.cs。原咬壳内字面的那批格随壳侧退役：
@@ -313,15 +340,23 @@ Check '画面变没变的四形与 detail 压平两形住在 C# 自检里(Vision
 # Body 那半是安全边界：两枚都传空块，核自己现场读 config\settings.json(与 $S 同源)；整块序列化
 # $S 会把 visionApiKey／webhook 那类本机专属值落进临时 JSON——那是"抄配置"不是"读配置"。
 $arkModulePs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\ark-module.ps1') -Raw -Encoding utf8
-Check '拉起答臂现问 start-ark-client 且只认 Started(不取 Done——Done 在那一路恒真)' (
-    ($arkDrivePs.Contains("Invoke-GdCli -Verb 'start-ark-client' -Body ([pscustomobject]@{})")) -and
-    ($arkDrivePs.Contains('$data = [bool]$d.Started')) -and (-not $arkDrivePs.Contains('$data = [bool]$d.Done')))
-Check '链体答臂现问 stop-maa-and-game(ark-module 的 Stop 钩子已随 11-04 刀⑤ 出仓，round 的 stop 是核内直答；PS 侧只此一处＝事实源不分家，负锚防回潮)' (
-    ($arkDrivePs.Contains("Invoke-GdCli -Verb 'stop-maa-and-game' -Body ([pscustomobject]@{})")) -and
-    (-not $arkModulePs.Contains("Invoke-GdCli -Verb 'stop-maa-and-game'")))
-Check '链体回放核内话术 Lines(一句都不丢；现量 2 发全在 ark-daily——ark-module 里那发随 Stop 块体出仓，旧读数-3不留活锚)' (
-    (@([string]$arkDrivePs -split "`n" |
-        Where-Object { $_ -match 'foreach \(\$l in @\(\$d\.Lines\)\) \{ Write-GdLog \(\[string\]\$l\) \}' }).Count -eq 2))
+# 11-04 转接刀·运行面刀⑦ 笔(c/d) 作废登记③：上面那三格拉链(拉起答臂现问 start-ark-client 且只认 Started／
+# 链体答臂现问 stop-maa-and-game／链体回放核内话术 Lines 现量 2 发)钉的全是编排岛里那台 executor **怎么取回执**。
+# 这一族的家本来就在那句话上：核内自检(Round.SelfTest 第 21/25 节)钉的是核怎么答，钉不到 PS 这一侧怎么取 ⇒
+# 只能由本套件钉源码形状。PS 侧不再有人取 ⇒ 三格当场没有桌子；语义一个字没丢，它在核内与 C# 那两处都有真身：
+#   · "取 Started 不取 Done" —— 家 tools\panel-cs\Chain.cs 的 StartArkClient 答形＋Round.SelfTest 第 25 节；
+#   · "问 stop-maa-and-game" —— 家 Chain.cs 的 StopMaaAndGame＋第 21 节；核内收尾那一路(main.rs 的 stop:ark)
+#     现问它，PS 侧自此不是那一路的写信人；
+#   · "Lines 回放一句不丢" —— 家 Chain.cs 那枚回执的 Lines 名册与核内 DirectOut::with_lines。
+# ⚠ 这三格**不搬靶**给轮档件：轮档件的代码面现拍一条 Invoke-GdCli -Verb 'start-ark-client'／'stop-maa-and-game'
+# 都没有(它问的是 updgate／audit 那一族)，把"PS 侧只此一处"的负锚改成"两处都数"是给不存在的桌子补椅子。
+# 同一批留一枚「退役不回潮」负锚，形状照下面那格拉起族三枚真身那形：岛上那批真身(枚数由下面 foreach 的名册供数，注释不写数——写死的枚数会被下一次扩名册变成陈旧账)若被人搬回 PS 侧，
+# 最可能落的两件就是轮档件与清单件——这一格不防功能缺失(功能由核内自检钉)，防的是那本双账复活。
+$arkIslandBad = @()
+foreach ($arkIslandFn in @('Set-GdArkShopState', 'Resolve-GdArkDecision', 'Show-GdArkPreview', 'Start-GdArkDaily', 'Get-GdArkDriveExe', 'Invoke-GdArkDailyRust')) {
+    if ($arkRoundPs.Contains('function ' + $arkIslandFn + ' ') -or $arkModulePs.Contains('function ' + $arkIslandFn + ' ')) { $arkIslandBad += $arkIslandFn }
+}
+Check '编排岛真身的定义不在轮档件与清单件里(名册逐枚现扫；回潮＝核内一份＋PS 一份那本双账复活；运行面唯一一条腿是 daily-clear→rust-round→--daily-round)' ($arkIslandBad.Count -eq 0) ($arkIslandBad -join ',')
 # 同一批的「退役不回潮」负锚（形状照上面刀③ 那格）：lib\maa.ps1 那三枚真身（Wait-GdArkLauncherReady／
 # Start-GdArkClient／Stop-MaaAndGame）整件出仓后，这一路的唯一事实源在 tools\panel-cs\Chain.cs。
 # 这一格不防功能缺失（功能由核内自检钉），防的是"有人把定义搬回 PS 侧"——那会让核内一份＋PS 一份那本双账复活。

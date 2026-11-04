@@ -28,8 +28,7 @@ Register-GdModule ([pscustomobject]@{
         Id               = 'ark'
         Name             = '明日方舟(端游 + MAA)'
         ShortName        = '方舟'
-        AssistantLib     = 'maa.ps1'          # 这一路能不能跑
-        OrchestrationLib = 'ark-daily.ps1'    # 有没有入口把这一路当一款游戏在管(合体/单游戏判据)
+        AssistantLib     = 'maa.ps1'          # 这一路能不能跑(11-04 刀⑦ 笔(a) 起它同时是合体判据那一把尺的唯一读数)
         RequiresAdmin    = $true              # 端游是管理员进程 → MAA 未提权点不动它
         ElevationFlag    = 'arkRequiresElevation'   # settings 里 runtime.<这个键> 显式写 false 才关掉闸门
         # 三句管理员提示里"为什么/否则会怎样"的措辞。框架不许写 MAA、端游这种词，所以话在这里说。
@@ -43,7 +42,15 @@ Register-GdModule ([pscustomobject]@{
         # vision-rescue.ps1 是两路共用的兜底内核(两份清单都写它，Get-GdModuleLibPaths 按文件名去重、只点一次)；
         # vision-ark.ps1 只有这一路用(PrintWindow 拍端游窗口 + 抢前台真实点击)，即 New-GdVisionTarget-ark 的出处。
         # ark-farm.ps1 是「材料补刷」的判定+记账层(目标清单/掉落学习表/自记账库存)，只有方舟这一路有对等物。
-        Libs             = @('maa.ps1', 'vision-rescue.ps1', 'vision-ark.ps1', 'ark-farm.ps1', 'ark-daily.ps1')
+        Libs             = @('maa.ps1', 'vision-rescue.ps1', 'vision-ark.ps1', 'ark-farm.ps1')
+        # 11-04 转接刀·运行面刀⑦ 笔(c)：'ark-daily.ps1' 整件出仓，故此处不再列它(不是"漏列"——漏列会被
+        # tools\test-modules.ps1 的 -MissingOnly 那格抓成"清单写了而文件不在"，反过来文件没了而名单还写着才是红)。
+        # 摘件前置＝岛内函数逐枚的岛外零活调用点现拍(§11.235)；运行面那条腿早换了宿主：daily-clear.ps1 →
+        # lib\rust-round.ps1 的 Invoke-GdDailyRoundDispatch → 内置件 gdcore --daily-round，岛里那套 drive 档
+        # executor(问-答-重放)在 PS 侧没有调用方 ⇒ 核内 --drive-ark-daily 自此是死出口，那笔账记在"名册枚数"那侧。
+        # 文件头那句「业务逻辑仍然全在 …ark-daily.ps1… 里」自此按历史引文读(摘走真身不等于摘走语义，家逐枚点名)：
+        # 商店态写盘＋话术在 tools\panel-cs\Round.Data.cs，判定构造段在 Orchestration.cs，拉起/收尾在 Chain.cs，
+        # 预览日志面与驱动档链体在 tools\rustcore\src\main.rs——PS 侧不再有一份，"本清单不构成第二套实现"仍成立。
         # 兜底后端的 kind(= New-GdVisionTarget-<kind>)。id 和 kind 不是一回事：1999 的兜底对象是"模拟器屏幕"，
         # kind 叫 mumu 才对得上 adb 那条链。所以这层对照只写在各自清单里，外壳(tools\vision-ask.ps1)只问这一项。
         VisionKind       = 'ark'
