@@ -121,7 +121,7 @@ Write-Host "`n[t7] 活动门(每轮自证)+商店领空 gate(假数据 + 临时 
 Save-GdTestState -Names @('ark-event-probe', 'ark-shop-done')
 function Set-FakeArkProbe {
     <# 第 1 刀(2026-10-12)的夹具：往 state\ark-event-probe.json 写一条"活动图自证结论"。
-       正常路径上这文件只由 lib\ark-module.ps1 的 Run 钩子(Update-GdArkEventProbe)写；自检不许起进程、
+       正常路径上这文件只由核内 daily_round_chain 的自证段写(verb update-ark-event-probe；lib\ark-module.ps1 的 Run 钩子已随 11-04 刀⑤ 出仓)。自检不许起进程、
        也不许读真日志(那会要求机器现场状态)，所以这里直接落夹具，跑完由 Restore-GdTestState 还原。 #>
     param([string]$Date, [string]$Key = 'zztest-event', [string]$Stage = 'AI-8', [bool]$Entered = $true,
           [string]$Evidence = '假数据：MAA 的关卡名单里选中了 AI-8')
@@ -316,12 +316,12 @@ $arkModulePs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\ark-mod
 Check '拉起答臂现问 start-ark-client 且只认 Started(不取 Done——Done 在那一路恒真)' (
     ($arkDrivePs.Contains("Invoke-GdCli -Verb 'start-ark-client' -Body ([pscustomobject]@{})")) -and
     ($arkDrivePs.Contains('$data = [bool]$d.Started')) -and (-not $arkDrivePs.Contains('$data = [bool]$d.Done')))
-Check '关闭两处各自现问 stop-maa-and-game(链体答臂与 ark-module 的 Stop 钩子；不合成一枚 PS 壳＝事实源不分家)' (
+Check '链体答臂现问 stop-maa-and-game(ark-module 的 Stop 钩子已随 11-04 刀⑤ 出仓，round 的 stop 是核内直答；PS 侧只此一处＝事实源不分家，负锚防回潮)' (
     ($arkDrivePs.Contains("Invoke-GdCli -Verb 'stop-maa-and-game' -Body ([pscustomobject]@{})")) -and
-    ($arkModulePs.Contains("Invoke-GdCli -Verb 'stop-maa-and-game' -Body ([pscustomobject]@{})")))
-Check '两路都回放核内话术 Lines(一句都不丢；档位随子进程 stdout 被 Invoke-GdCli 丢掉这笔账登记在下面三格退役锚里)' (
-    (@(([string]$arkDrivePs + [string]$arkModulePs) -split "`n" |
-        Where-Object { $_ -match 'foreach \(\$l in @\(\$d\.Lines\)\) \{ Write-GdLog \(\[string\]\$l\) \}' }).Count -eq 3))
+    (-not $arkModulePs.Contains("Invoke-GdCli -Verb 'stop-maa-and-game'")))
+Check '链体回放核内话术 Lines(一句都不丢；现量 2 发全在 ark-daily——ark-module 里那发随 Stop 块体出仓，旧读数-3不留活锚)' (
+    (@([string]$arkDrivePs -split "`n" |
+        Where-Object { $_ -match 'foreach \(\$l in @\(\$d\.Lines\)\) \{ Write-GdLog \(\[string\]\$l\) \}' }).Count -eq 2))
 # 同一批的「退役不回潮」负锚（形状照上面刀③ 那格）：lib\maa.ps1 那三枚真身（Wait-GdArkLauncherReady／
 # Start-GdArkClient／Stop-MaaAndGame）整件出仓后，这一路的唯一事实源在 tools\panel-cs\Chain.cs。
 # 这一格不防功能缺失（功能由核内自检钉），防的是"有人把定义搬回 PS 侧"——那会让核内一份＋PS 一份那本双账复活。

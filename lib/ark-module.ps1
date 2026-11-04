@@ -8,6 +8,17 @@
 #   (verb resolve-status-env-rows／resolve-status-proc-names，真身 tools\panel-cs\Detect.cs)，
 #   三枚展示壳(StatusVersion/StatusPlan/StatusSection)逐字内联进本文件的钩子(见下面 Status 那段)。
 #   「这里一个字都没搬」在那三枚上是破例了一次：搬的是壳的**话术**，判尺与名册都在核里，仍不构成第二套实现。
+# ⚠ 改口(11-04 刀⑤)：上面第 ② 件事的射程收窄 —— 判定(Resolve)／预览(Preview)／运行(Run)／收尾(Stop)／
+#   门(Ack)／商店(ShopState)／监督(SupervisorEvidence＋SupervisorRestart)八枚块体同日出仓，本清单自此只剩
+#   EnvProbes 一枚必需钩子＋status 一族可选钩子。摘它们不是因为语义没了，是因为**消费面没了**：那六族的
+#   round 臂已随转接刀·运行面逐枚改成核内直答(gate/stop＝刀①、preview＝刀②、resolve 判定面＝刀③)，
+#   监督两枚的完成线规格在 tools\panel-cs\Supervisor.Host.cs 的 SpecOf 里同值另写了一遍、进程树收尾在
+#   Round.cs::ProcTree，MaaAgentBinary 杀段在 Chain.cs —— 每一格都先确认"对面在场且可达"才摘，无两头不落。
+#   「业务逻辑仍全在 lib\*.ps1」这句自此只对 status 一族成立；Run 钩子里那半段"每轮自证活动图"的语义也不在
+#   PS 侧了(核内 round-probe:ark → verb update-ark-event-probe，main.rs 的 daily_round_chain 是它现在唯一的家)。
+#   ⚠ EnvProbes 是唯一留下的必需格：它的对面不是函数调用而是**源文本解析**(tools\panel-cs\Panel.Summary.cs
+#   的 ProbeSpecs 按一行正则去清单里抠那段)；判语全文在 lib\modules.ps1 末尾那段。
+#   旧 Ack 块里那条"退场的开关不写参数名"的约束不靠注释续命：它的尺是 tools\test-lib.ps1 的 [t1d] 门。
 #
 # 装载：lib\modules.ps1 的 Import-GdModules 按 lib\*-module.ps1 扫到它并 dot-source，
 # 注册进 $global:GdModules。这棵树上没有 lib\maa.ps1 时它虽然会被注册，但
@@ -53,80 +64,6 @@ Register-GdModule ([pscustomobject]@{
                     '方舟端游'  = $S.paths.arknightsExe
                 }
             }
-            Resolve   = {
-                param($S, $Opt)
-                # -Stage 是方舟专有的"这一轮刷哪几关"；框架只把它塞进 $Opt，不认识它的含义
-                # -Farm 同理：材料补刷的"专用轮"开关，含义全在 ark-farm.ps1 / ark-daily.ps1 里
-                return (Resolve-GdArkDecision -S $S -Stage $Opt.Stage -Force:([bool]$Opt.Force) -Farm:([bool]$Opt.Farm))
-            }
-            Preview   = { param($S, $Decision) Show-GdArkPreview -S $S -Decision $Decision }
-            Run       = {
-                param($S, $Decision)
-                $r = Start-GdArkDaily -S $S -Decision $Decision
-                # 每轮自证活动图(第 1 刀，2026-10-12)：采集挂在**这里**而不是两条链体各挂一处——
-                # 调度器自 10-24 刀③ 起是单臂(只剩换头执行器 Invoke-GdArkDailyRust)，共用这一个入口，
-                # 判据只写一遍；写在链体内会让 ark 那两枚 golden 门的调用序多出一枚纯只读记号
-                # (Get-GdMaaStageObservation 桩往投影里追加 OBS)，而这一步不改变任何链体行为(它只写
-                # state\ark-event-probe.json 给下一轮的判定层)，本就不属门的拍面。
-                # 只在这一轮真跑到 MAA 关门前(ok)才采：asst.log 是连日不轮转的大文件，早退/卡死的轮
-                # 读到的关名单属于"上一班"——把别人的名单写成今天的结论，等于拿假阳性烧今天的理智。
-                # 抛任何错都只 WARN：本轮结论由链体给，自证只是给下一轮留的读数。
-                if ([string]$r.Status -eq 'ok') {
-                    try {
-                        [void](Update-GdArkEventProbe -S $S -Decision $Decision -Obs (Get-GdMaaStageObservation -S $S))
-                    } catch { Write-GdLog "活动图自证没做起来：$($_.Exception.Message)(不影响本轮)" -Level WARN }
-                }
-                return $r
-            }
-            Stop      = {
-                param($S)
-                # ⚠ 刀①(2026-11-03)：round 的 stop:ark 已改核内直答(直接问 stop-maa-and-game)，上面那层
-                # PS 臂已摘 ⇒ 这一钩子格自此没有 round 消费面，体暂留(1eq.④ 摘臂不摘格)，去留归后续刀。
-                # 转接刀·方舟拉起族(11-03)：Stop-MaaAndGame 真身出仓，这一枚钩子与 lib\ark-daily.ps1 的 'stop' 答臂
-                # 各自现问同一把核内出口(stop-maa-and-game)。两处不合成一枚 PS 壳是决定：壳回来＝事实源又分家。
-                # 完整判语(含 Lines 回放丢档位那笔账)写在 ark-daily.ps1 那一侧，这里不重述。
-                $d = Invoke-GdCli -Verb 'stop-maa-and-game' -Body ([pscustomobject]@{})
-                foreach ($l in @($d.Lines)) { Write-GdLog ([string]$l) }
-                # MAA 的视觉/识别子进程偶尔留在后台，原来在入口的 finally 里无条件杀；
-                # 挪进这一路的收尾钩子后，只会在真跑过方舟的轮里执行(更合理，也不会碰不到就报错)
-                Get-Process -Name 'MaaAgentBinary' -ErrorAction SilentlyContinue | ForEach-Object { try { $_.Kill() } catch { } }
-            }
-            Ack       = {
-                param($S)
-                # 这一格**名字**必须留着：lib\modules.ps1 把 Ack 列在必需钩子名册里(七枚)，删格=装载校验红。
-                # 但 2026-10-12 第 1 刀起这条路上没有"活动确认门"了 —— 判定层改读每轮自证
-                # (state\ark-event-probe.json)，入口的 -AckArk 参数也已退场，原来的 Set-GdArkAck 一并删除。
-                # 所以这里只把话说清楚，不再写 ack 表(写了也没人读)，绝不静默空转。
-                # ⚠ 这句提示语里**不许写 -Games ark**：本文件会原样进 ark 单游戏导出仓库，
-                # 那边的入口 param() 里没有 -Games(只有 -Force)，玩家照抄就报"找不到参数"——
-                # tools\test-lib.ps1 的 [t1d] 门静态扫"入口脚本名 + 参数"就是专抓这一类(2026-10-12 第 1 刀曾红过一次)。
-                # 先例见 lib\ark-daily.ps1 那条"退场的开关不写参数名"的口径：共享代码只写两棵树都收的参数。
-                Write-GdLog '方舟的「活动确认」门已退场(2026-10-12)：每轮拿活动最后一关当探针自证，进得去就刷活动图，不需要人敲开关；想立刻无视当日结论强刷 = daily-clear.ps1 -Force' -Level WARN
-                return $null
-            }
-            ShopState = { param($S, $Done) Set-GdArkShopState -S $S -Done:([bool]$Done) }
-
-# ---- 监督一族的可选钩子(11-02 刀③ 起答方是 C# 宿主批，旧真身 lib\supervisor.ps1 已出仓)：给了才监督，重启钩子给了才允许干预。----
-            SupervisorEvidence = {
-                param($S)
-                $P = Get-MaaPaths -S $S
-                return @{
-                    AssistantProc = $P.Name      # MAA 本体进程名
-                    AssistantLog  = $P.GuiLog   # 新鲜度按 gui.log(和主流程同一本)
-                    GameProc      = [System.IO.Path]::GetFileNameWithoutExtension($S.paths.arknightsExe)
-                    DonePattern   = '任务已全部完成'   # 和 Invoke-MaaRun 认的是同一条完成线
-                }
-            }
-            SupervisorRestart = {
-                param($S)
-                # 拉起方式和主流程逐字相同(Start-Process Exe，MAA 配置里"启动即开队列")，
-                # 所以干预的语义 = "当它自己重开了一遍"，风险是多跑，不是乱点。
-                $P = Get-MaaPaths -S $S
-                Stop-GdProcessTree -Name $P.Name
-                Start-Process -FilePath $P.Exe -WorkingDirectory $P.Dir | Out-Null
-                return $true
-            }
-
             # ---- status.ps1 那套(只读体检)。这几个是"可选钩子"：清单里没写的段，外壳整段跳过，
             #      等价于拆分前那句按"函数在不在"的探测(Test-GdFunc，11-04 刀④ 随 status.ps1 一起退役)，
             #      只是问题从"函数在不在"变成了"这一路有没有声明它要出现在体检的哪几段"。

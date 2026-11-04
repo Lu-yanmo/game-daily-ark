@@ -259,7 +259,7 @@ function Invoke-GdArkDailyRust {
                 $dr = $envelope.result
                 $out = @{ Status = [string]$dr.status; Detail = [string]$dr.detail }
                 if ($null -ne $dr.duration) { $out.Duration = $dr.duration }
-                # 每轮自证活动图(第 1 刀，10-12)不在这里：与旧链共用 lib\ark-module.ps1 的 Run 钩子那一处采集，
+                # 每轮自证活动图(第 1 刀，10-12)不在这里：采集住核内 daily_round_chain 的自证段(verb update-ark-event-probe；原共用的 Run 钩子已随 11-04 刀⑤ 出仓)，
                 # 换头这一路拨开/拨关都照样只采一次；拨关(默认)时本函数整体不触。
                 return $out
             }
