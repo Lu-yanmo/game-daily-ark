@@ -4,6 +4,10 @@
 # ② 把现有函数接成框架那套统一签名的钩子。业务逻辑仍然全在
 # lib\maa.ps1 / ark-decisions.ps1 / ark-daily.ps1 / ark-status.ps1 里，这里一个字都没搬 ——
 # 所以 test-ark.ps1 那 139 条断言仍然是这一路的回归保护网，本文件不构成第二套实现。
+# ⚠ 改口(11-04 刀④)：上面那句里的 ark-status.ps1 已整件出仓 —— 两枚写死名册(EnvRows/ProcNames)改问核
+#   (verb resolve-status-env-rows／resolve-status-proc-names，真身 tools\panel-cs\Detect.cs)，
+#   三枚展示壳(StatusVersion/StatusPlan/StatusSection)逐字内联进本文件的钩子(见下面 Status 那段)。
+#   「这里一个字都没搬」在那三枚上是破例了一次：搬的是壳的**话术**，判尺与名册都在核里，仍不构成第二套实现。
 #
 # 装载：lib\modules.ps1 的 Import-GdModules 按 lib\*-module.ps1 扫到它并 dot-source，
 # 注册进 $global:GdModules。这棵树上没有 lib\maa.ps1 时它虽然会被注册，但
@@ -124,13 +128,47 @@ Register-GdModule ([pscustomobject]@{
             }
 
             # ---- status.ps1 那套(只读体检)。这几个是"可选钩子"：清单里没写的段，外壳整段跳过，
-            #      等价于拆分前的 Test-GdFunc 'Get-GdArkEnvRows' 探测，只是问题从"函数在不在"
-            #      变成了"这一路有没有声明它要出现在体检的哪几段"。----
-            StatusRows    = { param($S) Get-GdArkEnvRows -S $S }
-            StatusVersion = { param($S) Show-GdArkStatusVersion -S $S }
-            StatusProcs   = { param($S) Get-GdArkProcNames }
-            StatusPlan    = { param($S, $Offline) Show-GdArkStatusPlan -S $S -Offline:([bool]$Offline) }
-            StatusSection = { param($S) Show-GdArkQueueState -S $S }
+            #      等价于拆分前那句按"函数在不在"的探测(Test-GdFunc，11-04 刀④ 随 status.ps1 一起退役)，
+            #      只是问题从"函数在不在"变成了"这一路有没有声明它要出现在体检的哪几段"。
+            #      ⚠ 刀④(2026-11-04)：lib\ark-status.ps1 整件出仓 —— 名册两枚改问核(换答方不换问法：
+            #      行集/标签/行序/三态由 verb 逐字作答，染色话术留 status.ps1 壳)；展示三枚内联原函数体。 ----
+            StatusRows    = {
+                param($S)
+                $d = Invoke-GdCli -Verb 'resolve-status-env-rows' -Body ([pscustomobject]@{
+                    id = 'ark'; maaDir = $S.paths.maaDir; maaConfig = $S.paths.maaConfig; arknightsExe = $S.paths.arknightsExe
+                })
+                return @($d.rows)   # 三行 label/shown/state，Show-GdEnvRows 只管染色
+            }
+            StatusVersion = { param($S) Show-GdVersionFile -Label 'MAA' -Dir $S.paths.maaDir -File $S.paths.maaConfig }
+            StatusProcs   = {
+                param($S)
+                $d = Invoke-GdCli -Verb 'resolve-status-proc-names' -Body ([pscustomobject]@{ id = 'ark' })
+                return @($d.names)   # MAA／Arknights：名册住核(Detect.cs)，写死那份自此只有一份
+            }
+            StatusPlan    = {
+                param($S, $Offline)
+                $ark = Get-ArkEvent -S $S -Offline:([bool]$Offline)
+                Write-Host "  方舟：$($ark.Mode)  理智刷 $($ark.Stage)  ← $($ark.Reason)" -ForegroundColor $(if ($ark.Mode -eq 'event-pending') { 'Yellow' } else { 'Gray' })
+                # 材料补刷一行：只按"今天若跑长草顺不带哪关"报，读三本账不联网。
+                # ark-farm.ps1 不在(工程被裁)时整行跳过 —— 和 Resolve-GdArkDecision 的接线守卫同一套路。
+                if (Get-Command Resolve-GdArkFarmDecision -ErrorAction SilentlyContinue) {
+                    try {
+                        $fp = Resolve-GdArkFarmDecision -S $S -Decision $ark
+                        Write-Host "  $(Format-GdArkFarmLine -Plan $fp)" -ForegroundColor Gray
+                    } catch { Write-Host "  材料补刷：没判出来($($_.Exception.Message))" -ForegroundColor DarkGray }
+                }
+            }
+            StatusSection = {
+                param($S)
+                # 读 configuration.json 与行式的本体在 C#(maa-queue-lines)，这里只有"路径没填→黄字"和"读取失败→红字"两种显示行为。
+                $cfgPath = Join-GdPath $S.paths.maaDir @($S.paths.maaConfig)
+                # 路径没填时先说清"读不到是因为还没 setup"，别把下面 try 里那句绑定错误当成本工具的毛病
+                if (-not (Test-GdPathReady $cfgPath)) { Write-Host "  读不到 MAA 的配置文件：$cfgPath(助手目录还没填 → 先跑 setup.ps1)" -ForegroundColor Yellow; return }
+                try {
+                    $d = Invoke-GdCli -Verb 'maa-queue-lines' -Body ([pscustomobject]@{ cfgPath = $cfgPath })
+                    foreach ($l in @($d.Lines)) { Write-Host $l }
+                } catch { Write-Host "  读取失败：$($_.Exception.Message)" -ForegroundColor Red }
+            }
         }
         # 体检里这一路自己那一节的标题(没有就不写，外壳整段跳过)
         StatusSectionTitle = 'MAA 队列现状'
