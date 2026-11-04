@@ -263,8 +263,9 @@ Check 'arkdrive 门两档的行为判据已在核内 --selftest 第 29 节(门�
 # 11-04 转接刀·运行面刀⑦ 笔(c/d) 作废登记②：这里原本有三格(ark executor 的 ask 白名单十一枚／run·mark·obsrec·admin
 # 四枚 case 不许复活／信封 role 字面 R3-drive-ark-daily 仍在)，量的是编排岛 lib\ark-daily.ps1 里那台**驱动档**
 # executor 的源码形状。岛整件出仓后 PS 侧没有那台 executor，三格当场没有桌子，逐枚写下它们不再量什么、不静默删：
-#   · 十一枚那本是驱动档的数。轮档件现拍的 case 名册只有五枚(round-elevate／round-supervisor-start／
-#     round-supervisor-stop／updgate／audit)，而两件头注本来就明写「不要把驱动档那十四枚白名单当这枚名册用，
+#   · 十一枚那本是驱动档的数。轮档件现拍的 case 名册自刀⑧(2026-11-04) 起是三枚(round-elevate／
+#     round-supervisor-start／round-supervisor-stop；刀⑦ 那帧写的是五枚，updgate／audit 两枚本批出册)，
+#     而两件头注本来就明写「不要把驱动档那十四枚白名单当这枚名册用，
 #     那是另一族的数」——不同族的两本名册从不通约，所以这三格**搬不了靶**：硬搬等于把轮档那本当驱动档那本用。
 #   · run／mark 那几枚动作的真身在核内(--selftest 第 29 节那批钉着)，家一字未动；变的只是"PS 侧不再有人
 #     对着它们写 switch"。
@@ -349,7 +350,8 @@ $arkModulePs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\ark-mod
 #     现问它，PS 侧自此不是那一路的写信人；
 #   · "Lines 回放一句不丢" —— 家 Chain.cs 那枚回执的 Lines 名册与核内 DirectOut::with_lines。
 # ⚠ 这三格**不搬靶**给轮档件：轮档件的代码面现拍一条 Invoke-GdCli -Verb 'start-ark-client'／'stop-maa-and-game'
-# 都没有(它问的是 updgate／audit 那一族)，把"PS 侧只此一处"的负锚改成"两处都数"是给不存在的桌子补椅子。
+# 都没有(刀⑧ 起它现问的只剩监督两枚那族 verb，updgate／audit 两臂已随核内直答出册)，
+# 把"PS 侧只此一处"的负锚改成"两处都数"是给不存在的桌子补椅子。
 # 同一批留一枚「退役不回潮」负锚，形状照下面那格拉起族三枚真身那形：岛上那批真身(枚数由下面 foreach 的名册供数，注释不写数——写死的枚数会被下一次扩名册变成陈旧账)若被人搬回 PS 侧，
 # 最可能落的两件就是轮档件与清单件——这一格不防功能缺失(功能由核内自检钉)，防的是那本双账复活。
 $arkIslandBad = @()
