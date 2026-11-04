@@ -367,6 +367,17 @@ Check '拉起族三枚真身的定义不在现树 PS 侧(双删是回归抓器�
     (-not $arkMaaPs.Contains('function Wait-GdArkLauncherReady ')) -and
     (-not $arkMaaPs.Contains('function Start-GdArkClient ')) -and
     (-not $arkMaaPs.Contains('function Stop-MaaAndGame ')))
+# 转接刀·运行面刀⑨ 的「退役不回潮」负锚（形状照上面拉起族那格）：本批出仓的五枚 AST 零调用死真身里，这一路
+# 看得见的四枚——lib\common.ps1 的 Invoke-GdTakeover／Get-GdWindowByTitle 与 lib\maa.ps1 的
+# Get-GdMaaFightSkip／Get-GdMaaStageObservation——判据本体早在历刀进核(Orchestration.cs 两枚 detect／observe，
+# 对面读盘与接管在 Chain.cs)，这一格不防功能缺失，只防"有人把定义搬回 PS 侧"那本双账复活。
+# 名册由下面 foreach 供数，注释不写死枚数(在册「枚数两种身份」：帧的历史可写死，树的现量只能供数)。
+$arkCommonDeadPs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\common.ps1') -Raw -Encoding utf8
+$arkCut9Bad = @()
+foreach ($arkCut9Fn in @('Invoke-GdTakeover', 'Get-GdWindowByTitle', 'Get-GdMaaFightSkip', 'Get-GdMaaStageObservation')) {
+    if ($arkCommonDeadPs.Contains('function ' + $arkCut9Fn + ' ') -or $arkMaaPs.Contains('function ' + $arkCut9Fn + ' ')) { $arkCut9Bad += $arkCut9Fn }
+}
+Check '刀⑨ 四枚死真身的定义不在现树 PS 侧(common 与 maa 两件按名册逐枚现扫；回潮＝零调用尺白跑，判据只住核内与 Chain.cs)' ($arkCut9Bad.Count -eq 0) ($arkCut9Bad -join ',')
 
 Write-Host "`n[t12] asst.log 停滞线索(gui.log 静默时唯一看得见的东西)"
 # 2026-09-24 18:00 那轮：gui.log 22 分钟一个字没有，asst.log 里 StartUp@GameStart 的 exec_times 从 1 涨到 316。

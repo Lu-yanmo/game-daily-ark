@@ -48,7 +48,7 @@ function Test-GdArkFightSkipMarkToday {
 # 上面那枚 mark 的同族——lib\ark-daily.ps1 里 'obsrec' 问槽与白名单 token 同批双删，核内等价体在
 # tools\rustcore\src\main.rs::drive_obsrec(账本路径字面、Found=false 不记、周一=1…周日=7、60 条滑窗与
 # "读坏当空账"四样都在核内逐句照旧)；probe-arkdrive 门两代只咬它自带的 a9dea09 帧逐字副本 ⇒ 现树再无读者(门已于 10-27 第十九刀退役)。
-# 同族的 'obs'(Get-GdMaaStageObservation，在 lib\maa.ps1)没搬、问槽照旧活；state\ark-stage-weekday-obs.json 的写手自此只有核。
+# 同族的 'obs'(Get-GdMaaStageObservation，旧在 lib\maa.ps1；⚠ 11-05 转接刀·运行面刀⑨ 那枚壳已出仓，读盘半段的对面在 tools\panel-cs\Chain.cs::ReadStageObservation)那阵子没搬、问槽照旧活；state\ark-stage-weekday-obs.json 的写手自此只有核。
 
 function Get-GdArkItemMaps {
     <# MAA 自带 resource/item_index.json → 材料名↔代号两张表(进程内缓存)。

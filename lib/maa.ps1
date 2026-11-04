@@ -56,63 +56,11 @@ function Get-MaaPaths {
     }
 }
 
-function Get-GdMaaFightSkip {
-    <# 认关止损(2026-09-28 新增)：从 gui.log 读 MAA 本轮的跳关回执。
-       判定本体在 C#(detect-maa-fight-skip，Orchestration.cs)：只押最后一次 GUI started 之后、
-       「关卡计划内没有当日开放的关卡」这一句；「理智作战: … 任务跳过」理智已满等其它起因也会出，
-       只作旁证计数。本壳只做现场读盘(Get-GdFileTail 全量)与形状整理，不加任何 if 判定。 #>
-    param([Parameter(Mandatory)]$S)
-    $P = Get-MaaPaths -S $S
-    if (-not (Test-Path -LiteralPath $P.GuiLog)) { return $null }
-    $tail = Get-GdFileTail -Path $P.GuiLog -Offset 0
-    if (-not $tail.Text) { return $null }
-    $d = Invoke-GdCli -Verb 'detect-maa-fight-skip' -Body ([pscustomobject]@{ text = [string]$tail.Text })
-    return [pscustomobject]@{
-        Skipped   = [bool]$d.Skipped
-        Plan      = @($d.Plan)
-        TaskSkips = [int]$d.TaskSkips
-        Evidence  = @($d.Evidence)
-    }
-}
-
-function Get-GdMaaStageObservation {
-    <# 只读观测(B 档 #21，2026-10-05 新增)：从两份日志 tail 抄本轮的三对真值读数 ——
-       asst.log 的 append_task Fight stage 与 LastOrCurBattleBegin 重放、gui.log 的
-       GetFightStage from/selected(MAA 眼里今天开着的关名单)。判定本体在 C#
-       (observe-maa-stage-open，Orchestration.cs)，本壳只做现场读盘与形状整理，不加任何 if 判定。
-       它只给观测账本喂数(成案永远由人做)，不参与任何轮内决策。 #>
-    param([Parameter(Mandatory)]$S)
-    $P = Get-MaaPaths -S $S
-    $asstText = ''
-    if (Test-Path -LiteralPath $P.AsstLog) {
-        # 观测只押"最后一班"：asst.log 连日不轮转能涨到几十 MB(本机 bak 实测 67MB)，整份喂 CLI 不划算。
-        # 取尾部 16MB 窗口；若恰好日志已轮转变小，Get-GdFileTail 对越界 offset 会归零全读(小文件无伤)。
-        $al = [long](Get-Item -LiteralPath $P.AsstLog).Length
-        $ta = Get-GdFileTail -Path $P.AsstLog -Offset ([Math]::Max(0, $al - 16777216))
-        if ($ta.Text) { $asstText = [string]$ta.Text }
-    }
-    $guiText = ''
-    if (Test-Path -LiteralPath $P.GuiLog) {
-        $tg = Get-GdFileTail -Path $P.GuiLog -Offset 0
-        if ($tg.Text) { $guiText = [string]$tg.Text }
-    }
-    if (-not $asstText -and -not $guiText) { return $null }
-    $d = Invoke-GdCli -Verb 'observe-maa-stage-open' -Body ([pscustomobject]@{
-        asstText = $asstText
-        guiText  = $guiText
-        date     = (Get-Date).ToString('yyyy-MM-dd')
-    })
-    return [pscustomobject]@{
-        Found      = [bool]$d.Found
-        Date       = [string]$d.Date
-        Stage      = [string]$d.Stage
-        LastBattle = [bool]$d.LastBattle
-        SawGuiPlan = [bool]$d.SawGuiPlan
-        Survivors  = @($d.Survivors)
-        Selected   = [string]$d.Selected
-    }
-}
-
+# Get-GdMaaFightSkip 与 Get-GdMaaStageObservation 已删(11-05 转接刀·运行面刀⑨)：两枚都只剩"现场读盘半段"的壳，
+# 判据一枚也不在这里重写——判定本体住 tools/panel-cs/Orchestration.cs(detect-maa-fight-skip／observe-maa-stage-open)，
+# 读盘半段的对面住 Chain.cs::ReadFightSkip／::ReadStageObservation(verb read-maa-fight-skip／read-maa-stage-observation，
+# Round.SelfTest 第 23／24 节有格，含 asst.log 尾 16MB 那扇窗)，表账档位词两枚皆「已承接」；
+# 编排岛 11-04 刀⑦ 出仓后全仓 AST 零调用点(k853／k854／k855 三把尺同帧)。
 function Set-MaaDailyConfig {
     <#
       按今天的判定结果改写 MAA 的队列开关；写前备份、写后回读校验。
