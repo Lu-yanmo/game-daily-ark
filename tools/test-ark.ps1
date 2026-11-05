@@ -285,20 +285,34 @@ Check 'arkdrive 门两档的行为判据已在核内 --selftest 第 29 节(门�
 #   · 按函数体钉：轮档件里 stallTimeoutMinutes 与 visionMaxRescue 在两枚载荷(maaRun／m9aRun)里各出现一次，
 #     全文钉会让 m9aRun 那枚替 maaRun 顶包(同一行形状两枚都有)，所以靶缩进 Get-GdRoundMaaRunPayload 本体。
 # 收窄后同一发 m1 复拍：206/1，FAIL 当场点名 stallTimeoutMinutes(k814 那本 log)——这格自此有牙。
-$arkMaaRunBody = [regex]::Match($arkRoundPs, '(?s)function Get-GdRoundMaaRunPayload \{.*?\r?\n\}').Value
+# ⚠ 改口(11-06 转接刀·运行面刀⑪ 笔(c))：上面两段自此按历史引文读——ctx 的装配整块搬进了核对面
+# tools\panel-cs\Round.Host.cs(MaaRun／M9aRun 两枚载荷)，lib\rust-round.ps1 里那三枚真身当场没有对面了。
+# 换的只是语法，判据一个字没动：整行钉(行尾就到，多一个字符即红)、左右同名、按函数体切(全文钉会让
+# m9aRun 那枚替 maaRun 顶包)三形照旧——那条 m1 教训在前缀锚上成立的道理跟引擎无关。
+# 旧 PS 侧那格不静默消失：换成下面那枚「退役不回潮」负锚，防的是有人把装配定义搬回 PS 侧造出双账。
+$arkHostCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Round.Host.cs') -Raw -Encoding utf8
+$arkHostCode = ($arkHostCs -replace '(?s)/\*.*?\*/', ' ') -replace '(?m)^\s*//.*$', ' '
+$arkMaaRunBody = [regex]::Match($arkHostCs, '(?s)static Dictionary<string, object> MaaRun\(.*?\r?\n        \}').Value
 $arkCtxBad = @()
 foreach ($arkCtxKey in @('arkStartTimeoutMinutes', 'arkTimeoutMinutes', 'stallTimeoutMinutes', 'idleConfirmSeconds', 'abortOnMaaStallWarning', 'visionMaxRescue')) {
-    if ($arkMaaRunBody -notmatch ('(?m)^\s*' + $arkCtxKey + '\s*=\s*\[(int|bool)\]\$S\.runtime\.' + $arkCtxKey + '\s*$')) { $arkCtxBad += $arkCtxKey }
+    if ($arkMaaRunBody -notmatch ('(?m)^\s*"' + $arkCtxKey + '",\s*Ps(Int|Bool)\(Gd\.Get\(runtime, "' + $arkCtxKey + '"\)\),\s*$')) { $arkCtxBad += $arkCtxKey }
 }
-Check 'ctx 的 maaRun 载荷逐枚点名取键且左右同名(按函数体整行钉；不整块序列化 $S.runtime；11-04 笔(c/d) 搬靶到轮档件)' (
-    ($arkCtxBad.Count -eq 0) -and ($arkMaaRunBody -match '(?m)^\s*benignMaaErrors\s*=\s*\$benign\s*$') -and
-    ($arkMaaRunBody.Contains('foreach ($bm in $S.runtime.benignMaaErrors)'))) ($arkCtxBad -join ',')
-# 负锚自此分两副眼镜(11-04 笔(c/d) 新形，同 §「锚不是调用」那笔账的反面)：轮档件里 visionApiKey 的命中现拍全在
-# 注释里(讲"取键逐枚点名是硬约束"、讲"整枚 settings 不进信封"那几处)，把旧壳上那格全文负扫直接搬靶会当场假红。
-# 判据一个字没改：不许出现的是**代码面**。正半那枚是这格自己的自证(剥注释这招真在生效)，它若因为有人删掉那些注释
-# 而红，该改的是这格的取法、不是那句判据。——这里不写命中枚数：枚数不进注释，头注多一处理由句就会让这句陈旧。
-Check '轮档件的代码面一个字都不碰视觉 API key(visionApiKey 不许进 ctx/journal 那两本留盘的账；负锚按剥注释后抓)' (
-    (-not $arkRoundCode.Contains('visionApiKey')) -and ($arkRoundPs.Contains('visionApiKey')))
+Check 'ctx 的 maaRun 载荷逐枚点名取键且左右同名(按函数体整行钉；不整块序列化 runtime；11-06 笔(c) 搬靶到直身件 Round.Host.cs)' (
+    ($arkCtxBad.Count -eq 0) -and ($arkMaaRunBody -match '(?m)^\s*"benignMaaErrors",\s*benign\)\);\s*$') -and
+    ($arkMaaRunBody -match '(?m)^\s*foreach \(object bm in Gd\.List\(Gd\.Get\(runtime, "benignMaaErrors"\)\)\)\s*benign\.Add')) ($arkCtxBad -join ',')
+# 负锚那副眼镜跟着搬家：直身件里 visionApiKey 的命中现拍全在注释里(讲"整块 runtime 里住着 key"那处)，
+# 所以代码面负扫＋原文在场自证两半都要——判据不许动的是「不许出现的是代码面」这句。
+Check '直身件的代码面一个字都不碰视觉 API key(visionApiKey 不许进 ctx 那本留盘的账；负锚按剥注释后抓)' (
+    (-not $arkHostCode.Contains('visionApiKey')) -and ($arkHostCs.Contains('visionApiKey')))
+# 「退役不回潮」那枚(形状照下面编排岛名册那一格；名册由 foreach 供数，注释不写枚数)：PS 侧自此只递旋钮、
+# 不再自己装配 ctx——装配的唯一出口是 verb build-round-ctx，且这侧调用点只此一处(两处＝双账)。
+$arkCtxDefBad = @()
+foreach ($arkCtxFn in @('Get-GdRoundCtx', 'Get-GdRoundMaaRunPayload', 'Get-GdRoundM9aRunPayload')) {
+    if ($arkRoundCode.Contains('function ' + $arkCtxFn + ' {')) { $arkCtxDefBad += $arkCtxFn }
+}
+$arkCtxVerbHits = [regex]::Matches($arkRoundCode, "Invoke-GdCli -Verb 'build-round-ctx'").Count
+Check '轮档件的 PS 侧不再自己装配 ctx(三枚定义不许回潮；装配只走 build-round-ctx 那一枚出口且调用点唯一)' (
+    ($arkCtxDefBad.Count -eq 0) -and ($arkCtxVerbHits -eq 1)) (((($arkCtxDefBad -join ',') + '|verb-hits=' + $arkCtxVerbHits)))
 # 2026-10-27 甲档第四刀刀②：Invoke-MaaRun 真身(lib\maa.ps1 旧 :220-620)整函数出仓——
 # 循环骨架进核(maa_run + RealHost，tools\rustcore\src\main.rs)，判据/话术唯一事实源在
 # tools\panel-cs\RunLoops.cs／Orchestration.cs。原咬壳内字面的那批格随壳侧退役：
