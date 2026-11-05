@@ -263,8 +263,8 @@ Check 'arkdrive 门两档的行为判据已在核内 --selftest 第 29 节(门�
 # 11-04 转接刀·运行面刀⑦ 笔(c/d) 作废登记②：这里原本有三格(ark executor 的 ask 白名单十一枚／run·mark·obsrec·admin
 # 四枚 case 不许复活／信封 role 字面 R3-drive-ark-daily 仍在)，量的是编排岛 lib\ark-daily.ps1 里那台**驱动档**
 # executor 的源码形状。岛整件出仓后 PS 侧没有那台 executor，三格当场没有桌子，逐枚写下它们不再量什么、不静默删：
-#   · 十一枚那本是驱动档的数。轮档件现拍的 case 名册自刀⑧(2026-11-04) 起是三枚(round-elevate／
-#     round-supervisor-start／round-supervisor-stop；刀⑦ 那帧写的是五枚，updgate／audit 两枚本批出册)，
+#   · 十一枚那本是驱动档的数。轮档件现拍的 case 名册刀⑧(2026-11-04) 那帧是三枚、刀⑩(2026-11-05) 起是一枚
+#     (只剩 round-elevate；round-supervisor-start／-stop 随臂出册，再往前刀⑦ 那帧是五枚、updgate／audit 两枚出册)，
 #     而两件头注本来就明写「不要把驱动档那十四枚白名单当这枚名册用，
 #     那是另一族的数」——不同族的两本名册从不通约，所以这三格**搬不了靶**：硬搬等于把轮档那本当驱动档那本用。
 #   · run／mark 那几枚动作的真身在核内(--selftest 第 29 节那批钉着)，家一字未动；变的只是"PS 侧不再有人
