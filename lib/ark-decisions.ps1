@@ -154,36 +154,3 @@ function Get-GdArkEventProbe {
         Evidence = [string]$m.Evidence
     }
 }
-
-function Update-GdArkEventProbe {
-    <# 收尾采集：本轮下发过活动关(判定给得出 EventKey+StageHint)且有观测读数时，问一次
-       decide-ark-event-probe，Valid 才落盘。这一步和认栽标记一样属于"活"，任何失败只 WARN 不影响本轮结论。 #>
-    param([Parameter(Mandatory)]$S, $Decision, $Obs)
-    if (-not $Decision -or -not [string]$Decision.EventKey) { return $null }
-    $target = [string]$Decision.StageHint
-    if (-not $target) { return $null }
-    $d = Invoke-GdCli -Verb 'decide-ark-event-probe' -Body ([pscustomobject]@{
-        date     = (Get-Date).ToString('yyyy-MM-dd')
-        eventKey = [string]$Decision.EventKey
-        stage    = $target
-        obs      = $Obs
-    })
-    if (-not [bool]$d.Valid) {
-        Write-GdLog "活动图自证：$([string]$d.Evidence)" -Level WARN
-        return $null
-    }
-    $obj = [ordered]@{
-        Date     = [string]$d.Date
-        EventKey = [string]$d.EventKey
-        Stage    = [string]$d.Stage
-        Entered  = [bool]$d.Entered
-        Evidence = [string]$d.Evidence
-    }
-    Write-GdJson -Path (Get-GdArkEventProbePath) -Object $obj
-    if ($obj.Entered) {
-        Write-GdLog "活动图自证：$($obj.Stage) 进得去 → 下一轮照常按活动图刷($($obj.Evidence))" -Level OK
-    } else {
-        Write-GdLog "活动图自证：$($obj.Stage) 进不去 → 判为还没打通，当日剩余轮改刷长草($($obj.Evidence))" -Level WARN
-    }
-    return $obj
-}
