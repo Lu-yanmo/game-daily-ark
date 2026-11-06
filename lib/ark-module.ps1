@@ -42,7 +42,7 @@ Register-GdModule ([pscustomobject]@{
         # vision-rescue.ps1 是两路共用的兜底内核(两份清单都写它，Get-GdModuleLibPaths 按文件名去重、只点一次)；
         # vision-ark.ps1 只有这一路用(PrintWindow 拍端游窗口 + 抢前台真实点击)，即 New-GdVisionTarget-ark 的出处。
         # ark-farm.ps1 是「材料补刷」的判定+记账层(目标清单/掉落学习表/自记账库存)，只有方舟这一路有对等物。
-        Libs             = @('maa.ps1', 'vision-rescue.ps1', 'vision-ark.ps1', 'ark-farm.ps1')
+        Libs             = @('maa.ps1', 'vision-rescue.ps1', 'vision-ark.ps1')
         # 11-04 转接刀·运行面刀⑦ 笔(c)：'ark-daily.ps1' 整件出仓，故此处不再列它(不是"漏列"——漏列会被
         # tools\test-modules.ps1 的 -MissingOnly 那格抓成"清单写了而文件不在"，反过来文件没了而名单还写着才是红)。
         # 摘件前置＝岛内函数逐枚的岛外零活调用点现拍(§11.235)；运行面那条腿早换了宿主：daily-clear.ps1 →
@@ -94,13 +94,17 @@ Register-GdModule ([pscustomobject]@{
                 $ark = Get-ArkEvent -S $S -Offline:([bool]$Offline)
                 Write-Host "  方舟：$($ark.Mode)  理智刷 $($ark.Stage)  ← $($ark.Reason)" -ForegroundColor $(if ($ark.Mode -eq 'event-pending') { 'Yellow' } else { 'Gray' })
                 # 材料补刷一行：只按"今天若跑长草顺不带哪关"报，读三本账不联网。
-                # ark-farm.ps1 不在(工程被裁)时整行跳过 —— 和 Resolve-GdArkDecision 的接线守卫同一套路。
-                if (Get-Command Resolve-GdArkFarmDecision -ErrorAction SilentlyContinue) {
-                    try {
-                        $fp = Resolve-GdArkFarmDecision -S $S -Decision $ark
-                        Write-Host "  $(Format-GdArkFarmLine -Plan $fp)" -ForegroundColor Gray
-                    } catch { Write-Host "  材料补刷：没判出来($($_.Exception.Message))" -ForegroundColor DarkGray }
-                }
+                # ---- 转接刀·运行面刀⑬ 笔(a)(2026-11-06)：判定整段问核(换答方不换问法) ----
+                # 三前置/取数/纯判定全在 tools\panel-cs\Chain.cs::ResolveArkFarmDecision，settings.ark 那一路
+                # 由核侧自己现读(SettingsOf 缺键即读盘)；这里只把回执压成一行话——"话术单源"由本行独占，
+                # 旧 Format-GdArkFarmLine 那句"本轮不追加(…)"的原话照抄，不另立 verb、不改名册枚数。
+                # Lines 是核侧本来要 Write-GdLog 的那几句(纠偏说明/今日已认栽)，非专用轮全是默认档 ⇒ 整串按 INFO 回放。
+                try {
+                    $d = Invoke-GdCli -Verb 'resolve-ark-farm-decision' -Body ([pscustomobject]@{ decision = $ark })
+                    foreach ($l in @($d.Lines)) { if ($l) { Write-GdLog ([string]$l) } }
+                    if ($d.Farm) { Write-Host "  材料补刷：$($d.Farm.Reason)" -ForegroundColor Gray }
+                    else { Write-Host '  材料补刷：本轮不追加(ark.farmTargets 没配、功能关了、或今天不是长草方案)' -ForegroundColor Gray }
+                } catch { Write-Host "  材料补刷：没判出来($($_.Exception.Message))" -ForegroundColor DarkGray }
             }
             StatusSection = {
                 param($S)
