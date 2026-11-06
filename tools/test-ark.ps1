@@ -14,45 +14,28 @@ Show-GdCommonEmptyPathChecks
 Show-GdCommonRunLockChecks
 Show-GdCommonScreensaverChecks
 
-# ---- B-3②-d 刀①(11-01)静态锚：三枚 state 读件的"两臂都在"，钉在 maaDir 那道现场门之前 ----
+# ---- 刀⑯ 笔(d)-1(11-06)静态锚：组值半段"一次取齐"的形状，钉在 maaDir 那道现场门之前 ----
 # 为什么放这里：这一格钉的是源码形状，MAA 目录在不在都该有证词(只读自检不许要求机器现场状态)；
 # 放在下面那道 return 之后，没配 paths.maaDir 的机器上它就静默不跑，等于把锚做成哑尺。
-# 剥注释照 tools\test-r1999.ps1 那两形(-replace 逐字复用)：本批这三枚读件的**函数体内就写了**
-# `read-decision-state`、`Get-GdStateObject` 这些词(那是语义边界登记，不是调用)，不剥注释的正向锚
-# 会在真身被摘掉后照样绿——那是本仓登记过的"锚不是调用"形。
-# 用 .Contains() 而不是 -match：这里钉的是**逐字符号**(整块字面量里带 $ 与引号)，正则反而要为转义多写一层。
-$fnAck = [string](Get-Command Get-GdAckMap -ErrorAction SilentlyContinue).Definition
-$fnAck = ($fnAck -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
-$fnShop = [string](Get-Command Get-GdShopDoneMap -ErrorAction SilentlyContinue).Definition
-$fnShop = ($fnShop -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
-$fnProbe = [string](Get-Command Get-GdArkEventProbe -ErrorAction SilentlyContinue).Definition
-$fnProbe = ($fnProbe -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
+# 旧三枚 state 读件(Get-GdAckMap／Get-GdShopDoneMap／Get-GdArkEventProbe)与领空 flag 尺 Test-GdShopDoneEnabled
+# 本批出仓，锚自此换家到 Resolve-ArkPlan 的组值半段。剥注释照 tools\test-r1999.ps1 那两形(-replace 逐字复用)：
+# 不剥注释的"正向锚"会在真身被摘掉后照样绿——那是本仓登记过的"锚不是调用"形。
+$fnPlan = [string](Get-Command Resolve-ArkPlan -ErrorAction SilentlyContinue).Definition
+$fnPlan = ($fnPlan -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
+Check '刀⑯ 笔(d)-1 核臂在：Resolve-ArkPlan 现问 read-decision-state 一次取齐(ack／领空／自证三枚读件不再各开一把)' (
+    $fnPlan.Contains("Invoke-GdCli -Verb 'read-decision-state'") -and
+    -not $fnPlan.Contains('Get-GdAckMap') -and -not $fnPlan.Contains('Get-GdShopDoneMap') -and -not $fnPlan.Contains('Test-GdShopDoneEnabled')) $(
+    if ($fnPlan.Length -eq 0) { 'Resolve-ArkPlan 不在场(尺没接到电)' } else { "len=$($fnPlan.Length)" })
+Check '刀⑯ 笔(d)-1 折算在：领空图给不给吃的是核交回的 ShopDoneGateOpen(PS 侧不再再造一把 flag 尺；IgnoreShopDone 语义仍在)' (
+    $fnPlan.Contains('$ds.ShopDoneGateOpen') -and $fnPlan.Contains('$IgnoreShopDone')) $('len=' + $fnPlan.Length)
 
-Check '②-d 刀①核臂在(ack 表)：Get-GdAckMap 现问 read-decision-state，且 want 里只点 ack 那一枚' (
-    $fnAck.Contains("Invoke-GdCli -Verb 'read-decision-state'") -and $fnAck.Contains("@{ game = `$Game; want = @('ack') }")) $(
-    if ($fnAck.Length -eq 0) { 'Get-GdAckMap 不在场(尺没接到电)' } else { "len=$($fnAck.Length)" })
-Check '②-d 刀①回落臂在(ack 表)：核不可用时仍由壳自己读 "$Game-event-ack" 的 acked 键(逐字＝改指前原样)' (
-    $fnAck.Contains('Get-GdStateObject -Name "$Game-event-ack" -Default $null') -and $fnAck.Contains("Get-GdMapValue `$obj 'acked'"))
-
-Check '②-d 刀①核臂在(领空表)：Get-GdShopDoneMap 现问同一把出口，且 want 里只点 shopDone 那一枚' (
-    $fnShop.Contains("Invoke-GdCli -Verb 'read-decision-state'") -and $fnShop.Contains("@{ game = `$Game; want = @('shopDone') }")) $(
-    if ($fnShop.Length -eq 0) { 'Get-GdShopDoneMap 不在场(尺没接到电)' } else { "len=$($fnShop.Length)" })
-Check '②-d 刀①回落臂在(领空表)：核不可用时仍由壳自己读 "$Game-shop-done" 的 done 键(逐字＝改指前原样)' (
-    $fnShop.Contains('Get-GdStateObject -Name "$Game-shop-done" -Default $null') -and $fnShop.Contains("Get-GdMapValue `$obj 'done'"))
-
-Check '②-d 刀①核臂在(自证账)：Get-GdArkEventProbe 现问 read-decision-state，game 恒点名 ark(那枚文件名是常量)' (
-    $fnProbe.Contains("Invoke-GdCli -Verb 'read-decision-state'") -and $fnProbe.Contains("@{ game = 'ark'; want = @('probe') }")) $(
-    if ($fnProbe.Length -eq 0) { 'Get-GdArkEventProbe 不在场(尺没接到电)' } else { "len=$($fnProbe.Length)" })
-Check '②-d 刀①判形在(自证账)：问的是属性在不在，不是值在不在(null 在这里是合法读数＝这一轮没探过；把它当核没答就把自证读成空表)' (
-    $fnProbe.Contains("`$null -ne `$core.PSObject.Properties['Probe']") -and $fnProbe.Contains("if (`$null -eq `$core.Probe) { return `$null }"))
-Check '②-d 刀①回落臂在(自证账)：核不可用时仍由壳自己走 路径→Test-Path→读 json→EventKey 判空(逐字＝改指前原样)' (
-    $fnProbe.Contains('Get-GdArkEventProbePath') -and $fnProbe.Contains('-not [string]$m.EventKey'))
-
-# 语义边界那一格(三枚读件共同的那句话)：这两枚表读件**不取**核顺手摆上桌的 ShopDoneGateOpen——
-# 领空门的"给不给"仍归 Test-GdShopDoneEnabled(表账「不许动」那一档)，这里若哪天改成读那枚读数，就是第二条尺进场，得先拍。
-Check '②-d 刀①语义边界：ack／领空两枚表读件都不消费 ShopDoneGateOpen(那把 flag 尺仍只有 Test-GdShopDoneEnabled 一枚)' (
-    -not $fnAck.Contains('ShopDoneGateOpen') -and -not $fnShop.Contains('ShopDoneGateOpen')) $(
-    'ackLen=' + $fnAck.Length + ' shopLen=' + $fnShop.Length)
+# 行为级(判据换家的正对照)：核把原表与"给不给"分两枚键交回——ShopDoneGateOpen 不消费原表，
+# 领空门折算吃的就是这一枚；旧"语义边界"格(表读件不取 ShopDoneGateOpen)随三枚读件出仓，此格承其位。
+$dsGate = Invoke-GdCli -Verb 'read-decision-state' -Body ([pscustomobject]@{ game = 'ark' })
+Check '刀⑯ 笔(d)-1 行为锚：read-decision-state 把 ShopDone 原表与 ShopDoneGateOpen"给不给"分两枚键交回(后者是布尔)' (
+    ($null -ne $dsGate.PSObject.Properties['ShopDone']) -and
+    ($null -ne $dsGate.PSObject.Properties['ShopDoneGateOpen']) -and ($dsGate.ShopDoneGateOpen -is [bool])) $(
+    "gate=$($dsGate.ShopDoneGateOpen)")
 
 # [t2] 往后的每一组都要读 MAA 自己的文件(关卡表 resource\stages.json、队列 configuration.json)。
 # paths.maaDir 还没填(exe 第一次跑、只 setup -SkipScan 过)就先说人话：
@@ -172,7 +155,7 @@ try {
     $p5 = Resolve-ArkPlan -S $S -Data $fake -Source '假数据' -Now $nowMs
     Check '活动代号不符的自证结论不挡门(换活动就得重新自证)' ($p5.Mode -eq 'event' -and $p5.Stage -eq 'AI-8') $p5.Reason
     Clear-FakeArkProbe
-    Set-GdShopDoneKey -Game 'ark' -Key 'zztest-event'
+    Invoke-GdCli -Verb 'set-ark-shop-state' -Body ([pscustomobject]@{ eventKey = 'zztest-event'; eventTip = '测试'; done = $true }) | Out-Null
     $p6 = Resolve-ArkPlan -S $S -Data $fake -Source '假数据' -Now $nowMs
     Check '商店领空 → 回落长草计划' ($p6.Mode -eq 'idle' -and $p6.Stage -eq $idleStage -and $p6.ClearSanity -and $p6.ShopDone) $p6.Reason
     $p7 = Resolve-ArkPlan -S $S -Data $fake -Source '假数据' -Now $nowMs -IgnoreShopDone
@@ -192,10 +175,13 @@ try {
     $q3 = Resolve-ArkPlan -S $S -Data $two -Source '假数据' -Now $nowMs
     Check 'B 自证进得去 → 自动改刷 B' ($q3.Mode -eq 'event' -and $q3.EventKey -eq 'zztest-event2' -and $q3.Reason -match '领空') $q3.Reason
     Clear-FakeArkProbe
-    Set-GdShopDoneKey -Game 'ark' -Key 'zztest-event2'
+    Invoke-GdCli -Verb 'set-ark-shop-state' -Body ([pscustomobject]@{ eventKey = 'zztest-event2'; eventTip = '测试A'; done = $true }) | Out-Null
     $q4 = Resolve-ArkPlan -S $S -Data $two -Source '假数据' -Now $nowMs
     Check '都领空 → 长草计划' ($q4.Mode -eq 'idle' -and $q4.ShopDone) $q4.Reason
-    Check '撤销标记生效' ((Remove-GdShopDoneKey -Game 'ark' -Key 'zztest-event') -and -not (Get-GdShopDoneMap -Game 'ark').ContainsKey('zztest-event'))
+$rvReset = Invoke-GdCli -Verb 'set-ark-shop-state' -Body ([pscustomobject]@{ eventKey = 'zztest-event'; done = $false })
+$dsAfter = Invoke-GdCli -Verb 'read-decision-state' -Body ([pscustomobject]@{ game = 'ark'; want = @('shopDone') })
+Check '撤销标记生效(Action=reset 且表里已无此键——ContainsKey 那把不分大小写的尺在核侧同一把)' (
+    $rvReset.Action -eq 'reset' -and -not $dsAfter.ShopDone.PSObject.Properties['zztest-event']) "action=$($rvReset.Action)"
 } finally {
     Restore-GdTestState
 }

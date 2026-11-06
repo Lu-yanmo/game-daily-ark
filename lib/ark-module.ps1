@@ -35,7 +35,7 @@ Register-GdModule ([pscustomobject]@{
         AdminWhy         = '端游要管理员权限(MAA 未提权时连不上客户端)'
         AdminHint        = 'MAA 可能连不上端游'
         AdminOkNote      = '端游/MAA 需要'
-        SettingsBlock    = 'ark'              # $S.ark —— Test-GdShopDoneEnabled 读 shopDoneStopsEvent 用
+        SettingsBlock    = 'ark'              # $S.ark —— 供夹具/入口拼 settings 块喂核 read-decision-state(领空门判定吃 shopDoneStopsEvent，真身在核内 FlagEnabled)
         PathKeys         = @('maaDir')        # 该催的助手目录(口径要和 Get-GdRequiredPathKeys 一致)
         # 这一路的业务库，由入口在顶层 dot-source(函数里点的会连函数定义一起消失，见 modules.ps1 的 Import-GdModules)。
         # 只写内核不管的那一枚——ark-decisions.ps1 归 lib\decisions.ps1 那个门面按文件在不在点，不重复列。

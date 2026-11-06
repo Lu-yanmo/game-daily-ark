@@ -42,9 +42,13 @@ function Get-GdStageTable {
 function Resolve-ArkPlan {
     <#
       转发壳：活动窗口/确认门/领空回落/文案的全部规则在 C#(decide-ark)。
-      这里只组装规则要用的值 —— 真实时钟的 dow(周日按 7，老行为原样保留)、
-      按 IgnoreShopDone + shopDoneStopsEvent 决定给不给领空图、现场 verb 名、ack 图。
-      返回信封 data(PSCustomObject，属性名与顺序和旧版逐字一致)。
+      这里只组装规则要用的值 —— 真实时钟的 dow(周日按 7，老行为原样保留)。
+      ⚠ 刀⑯ 笔(d)-1(2026-11-06)改口：旧组值三枚读件(Get-GdAckMap／Get-GdShopDoneMap／Get-GdArkEventProbe)
+      与领空 flag 尺 Test-GdShopDoneEnabled 本批出仓，改指核 read-decision-state **一次**取齐(Ack／ShopDone／
+      ShopDoneGateOpen／Probe 四格)；"给不给领空图"的折算仍在本壳(吃核交回的 ShopDoneGateOpen——真身
+      Round.FlagEnabled：缺省即开启、显式写 false 才关)，IgnoreShopDone 语义不变。settings 只喂本路那一块
+      (真身 BlockOf 按 game 现问块名，喂全量与喂本块同一读数)。返回信封 data(PSCustomObject，属性名与
+      顺序和旧版逐字一致)。
     #>
     param(
         [Parameter(Mandatory)]$S,
@@ -55,19 +59,21 @@ function Resolve-ArkPlan {
     )
     $dow = [int](Get-Date).DayOfWeek
     if ($dow -eq 0) { $dow = 7 }
+    $ds = Invoke-GdCli -Verb 'read-decision-state' -Body ([pscustomobject]@{
+        game = 'ark'
+        settings = [pscustomobject]@{ ark = $S.ark }
+    })
     $shopDone = @{}
-    if (-not $IgnoreShopDone -and (Test-GdShopDoneEnabled -S $S -Game 'ark')) {
-        $shopDone = Get-GdShopDoneMap -Game 'ark'
-    }
+    if (-not $IgnoreShopDone -and $ds.ShopDoneGateOpen) { $shopDone = $ds.ShopDone }
     $body = [pscustomobject]@{
         ark = $S.ark
         dow = $dow
         now = $Now
         data = $Data
         source = $Source
-        ack = (Get-GdAckMap -Game 'ark')
+        ack = $ds.Ack
         shopDone = $shopDone
-        probe = (Get-GdArkEventProbe)
+        probe = $ds.Probe
     }
     return Invoke-GdCli -Verb 'decide-ark' -Body $body
 }
@@ -115,42 +121,8 @@ function Get-ArkEvent {
 # 于是把 -AckArk 那道人肉确认门换成机器自证：每轮拿活动最后一关当探针递下去，跑完从同一批现场读数
 # (observe-maa-stage-open 那份)判"进得去没进得去"，结论落 state\ark-event-probe.json，下一轮喂回判定层。
 # 判据(名单里有没有这一关)与"结论不落地"那三种无效形状全住在 C#(decide-ark-event-probe)，壳只管读盘写盘。
+# ⚠ 刀⑯ 笔(d)-1(2026-11-06)：读盘那一半(Get-GdArkEventProbe，核臂 read-decision-state＋PS 回落臂)本批出仓——
+#   判定层的 probe 那一枚由 Resolve-ArkPlan 经 read-decision-state 直答取齐(ReadProbe 三形归一 null 的口径在核侧)；
+#   这里只留路径一枚(门侧夹具写盘用)。
 # 键集与 Decisions.cs 那侧的 probe 入参一一对上：Date / EventKey / Stage / Entered / Evidence。
 function Get-GdArkEventProbePath { Join-Path $global:GD.State 'ark-event-probe.json' }
-
-function Get-GdArkEventProbe {
-    <# 只读：上一轮的活动图自证结论。文件不在/读坏了回 $null —— 判定层据此当"没探过"处理，
-       照常拿最后一关当探针，绝不会因为采集失败就把活动图判成没打通(那才是真丢理智)。 #>
-    # ── B-3②-d 刀①(2026-11-01 §11.189 定档)：这半段读改指核，读的还是同一枚 state\ark-event-probe.json ──
-    # 核臂＝read-decision-state 的 probe 那一格(真身 tools\panel-cs\Round.Data.cs::ReadProbe)：
-    #   "文件不在／读坏了／没有 EventKey"三形在核侧同样归一为没答，与这里旧口径逐字一致。
-    # game 恒点名 ark：这枚账本就是 ark 一路独有的(核侧那个文件名也是常量)，别按调用方传的 id 现拼。
-    # 判"核答了没有"用**属性在不在**而不是值在不在：null 在这里是合法读数(＝这一轮没探过)，
-    #   拿它当"核没答"会把自证结论读成空表——那正是"活动图白打"那一形。
-    # 回落臂＝下面那一段，逐字是改指前的原样(含"读坏了也回 null"那一层 try)。
-    $core = $null
-    try {
-        $core = Invoke-GdCli -Verb 'read-decision-state' -Body ([pscustomobject]@{ game = 'ark'; want = @('probe') })
-    } catch { $core = $null }
-    if ($null -ne $core -and $null -ne $core.PSObject.Properties['Probe']) {
-        if ($null -eq $core.Probe) { return $null }
-        return [pscustomobject]@{
-            Date     = [string]$core.Probe.Date
-            EventKey = [string]$core.Probe.EventKey
-            Stage    = [string]$core.Probe.Stage
-            Entered  = [bool]$core.Probe.Entered
-            Evidence = [string]$core.Probe.Evidence
-        }
-    }
-    $p = Get-GdArkEventProbePath
-    if (-not (Test-Path -LiteralPath $p)) { return $null }
-    try { $m = Read-GdJson -Path $p } catch { return $null }
-    if (-not $m -or -not [string]$m.EventKey) { return $null }
-    return [pscustomobject]@{
-        Date     = [string]$m.Date
-        EventKey = [string]$m.EventKey
-        Stage    = [string]$m.Stage
-        Entered  = [bool]$m.Entered
-        Evidence = [string]$m.Evidence
-    }
-}
