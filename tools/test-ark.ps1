@@ -85,7 +85,7 @@ function FightFlags($preview) {
     return $out
 }
 
-$r1 = Set-MaaDailyConfig -S $S -Decision ($base + @{ Mode = 'idle'; Stage = 'CE-5,LS-5'; ClearSanity = $true })
+$r1 = Invoke-GdCli -Verb 'apply-maa-daily-config' -Body ([pscustomobject]@{ settings = $S; decision = ($base + @{ Mode = 'idle'; Stage = 'CE-5,LS-5'; ClearSanity = $true }) })
 $disk = FightFlags $null
 $wantsOn = (@($r1.Changes | Where-Object { $_ -match '剩余理智 → IsEnable=True' }).Count -gt 0)
 Check 'idle: 剩余理智最终会被启用' ([bool]$disk[[string]$S.ark.finishAllSanityWith] -or $wantsOn) "现状=$([bool]$disk[[string]$S.ark.finishAllSanityWith]) 本次改写=$wantsOn"
@@ -97,13 +97,13 @@ Check 'idle: 日常链路都在启用集' $keepOk ($r1.ExpectedChains -join ',')
 Check 'idle: 肉鸽/生息演算不在启用集' (@($S.ark.disableQueues | Where-Object { $_ -in $r1.ExpectedChains }).Count -eq 0)
 Check '预览不落盘' ((Get-FileHash -LiteralPath $cfgPath -Algorithm SHA256).Hash -eq $hashBefore)
 
-$r2 = Set-MaaDailyConfig -S $S -Decision ($base + @{ Mode = 'event-pending'; Stage = 'SR-8'; ClearSanity = $false })
+$r2 = Invoke-GdCli -Verb 'apply-maa-daily-config' -Body ([pscustomobject]@{ settings = $S; decision = ($base + @{ Mode = 'event-pending'; Stage = 'SR-8'; ClearSanity = $false }) })
 Check '不烧理智的形状: 不写 Fight' ('Fight' -notin $r2.ExpectedChains) ($r2.ExpectedChains -join ',')
 
-$r3 = Set-MaaDailyConfig -S $S -Decision ($base + @{ Mode = 'event'; Stage = 'SR-8'; ClearSanity = $true })
+$r3 = Invoke-GdCli -Verb 'apply-maa-daily-config' -Body ([pscustomobject]@{ settings = $S; decision = ($base + @{ Mode = 'event'; Stage = 'SR-8'; ClearSanity = $true }) })
 Check 'event 档: 刷活动关' ('Fight' -in $r3.ExpectedChains -and (@($r3.Changes | Where-Object { $_ -match 'StagePlan = SR-8' }).Count -gt 0))
 $r4 = $null
-try { Set-MaaDailyConfig -S $S -Decision ($base + @{ Mode = 'idle'; Stage = 'NOT-A-STAGE'; ClearSanity = $true }) | Out-Null } catch { $r4 = $_.Exception.Message }
+try { Invoke-GdCli -Verb 'apply-maa-daily-config' -Body ([pscustomobject]@{ settings = $S; decision = ($base + @{ Mode = 'idle'; Stage = 'NOT-A-STAGE'; ClearSanity = $true }) }) | Out-Null } catch { $r4 = $_.Exception.Message }
 Check '坏关卡代号会被拦住' ($r4 -and $r4 -match 'NOT-A-STAGE')
 
 Write-Host "`n[t5] 方舟判定链路(会联网拉一次活动接口)"

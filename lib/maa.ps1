@@ -6,7 +6,7 @@
 #   Get-MaaAsstStuckHint  → verb parse-asst-hint(线索话术整句在 C#) ⚠ 同批出仓；两句自此只剩来历陈述，别再当"本文件里还有这枚"读。
 #   Set-MaaDailyConfig 的规则段 → verb plan-maa-queue(队列开关/关卡校验/farm 两档九项/ExpectedChains
 #       的 Select-Object -Unique 大小写敏感去重，全部在 C#；本壳保留：在跑检查、读写盘、备份、回读核对、日志染色)
-# 所以：改规则/文案请改 Processes.cs 并跑 panel-cs --proctest 对真值，不要在这里加规则。
+# 所以：改规则/文案请改 Processes.cs ⚠ 11-06 转接刀·运行面刀⑱：Set-MaaDailyConfig 这枚转发壳整枚出仓（现场检查/读写盘/回放/回读核对四段对面全在 Chain.cs::ApplyMaaDailyConfig，verb apply-maa-daily-config），门侧四处自此改问 CLI 出口。 并跑 panel-cs --proctest 对真值，不要在这里加规则。
 # 现势：监控循环 Invoke-MaaRun(旧 :220-620)已整函数出仓——循环骨架在核内 maa_run<H: MaaHost>
 # (tools\rustcore\src\main.rs，判据外调 C#，生产 = maa_run + RealHost)。⚠ 11-02 转接刀后这半句作废：
 # 本文件剩下的是"读现场、改写队列"那几枚壳(⚠ 11-03 转接刀·方舟拉起族把"起进程、启动器页、进程树收尾"那几枚摘走，
@@ -61,82 +61,3 @@ function Get-MaaPaths {
 # 读盘半段的对面住 Chain.cs::ReadFightSkip／::ReadStageObservation(verb read-maa-fight-skip／read-maa-stage-observation，
 # Round.SelfTest 第 23／24 节有格，含 asst.log 尾 16MB 那扇窗)，表账档位词两枚皆「已承接」；
 # 编排岛 11-04 刀⑦ 出仓后全仓 AST 零调用点(k853／k854／k855 三把尺同帧)。
-function Set-MaaDailyConfig {
-    <#
-      按今天的判定结果改写 MAA 的队列开关；写前备份、写后回读校验。
-      MAA 必须在运行外部关闭状态才能改(否则退出时会被覆盖)。
-      转发壳(plan-maa-queue)：规则段本体在 Processes.cs，这里只剩现场检查/读写盘/回放日志/回读核对。
-    #>
-    param([Parameter(Mandatory)]$S, [Parameter(Mandatory)]$Decision, [switch]$Apply)
-
-    $P = Get-MaaPaths -S $S
-    if (Test-GdProcessRunning -Name $P.Name) {
-        # 真正要写配置时必须先关掉(否则 MAA 退出时会把改动覆盖)；只预览则不影响
-        if ($Apply) { throw "MAA 正在运行，请先关闭再改配置" }
-        Write-GdLog 'MAA 正在运行：预览不受影响，真正跑时会先接管关闭(残留的高权限 MAA 需要由提权那一轮来收)' -Level WARN
-    }
-    if (-not (Test-Path -LiteralPath $P.Config)) { throw "MAA 配置不存在：$P.Config" }
-
-    $cfg = Read-GdJson -Path $P.Config
-
-    <#
-      规则段整段递给 plan-maa-queue(开关怎么算/farm 两档九项/关卡校验/去重口径全在 Processes.cs)。
-      账本口径(farm 缺口、场次)在壳这侧从 Decision.Farm 抠成平铺参数 —— verb 不认 Decision 的形状。
-    #>
-    $farmPlan = Get-GdMapValue $Decision 'Farm'
-    $farmActive = [bool]($farmPlan -and [bool](Get-GdMapValue $farmPlan 'Active'))
-    $farmMode = [string](Get-GdMapValue $Decision 'FarmMode')
-    $d = Invoke-GdCli -Verb 'plan-maa-queue' -Body ([pscustomobject]@{
-        config              = $cfg
-        wantFinish          = [string]$S.ark.finishAllSanityWith
-        alsoEnableMainFight = [bool]$S.ark.alsoEnableMainFight
-        launchArkFromHelper = [bool]$S.runtime.launchArkFromHelper
-        keepOn              = @($S.ark.keepQueuesEnabled)
-        turnOff             = @($S.ark.disableQueues)
-        table               = (Get-GdStageTable -S $S)
-        mode                = [string]$Decision.Mode
-        clearSanity         = [bool]$Decision.ClearSanity
-        stage               = [string]$Decision.Stage
-        farmActive          = $farmActive
-        farmMode            = $farmMode
-        farmItemId          = $(if ($farmPlan) { [string](Get-GdMapValue $farmPlan 'ItemId') } else { '' })
-        farmGap             = $(if ($farmPlan) { [int](Get-GdMapValue $farmPlan 'Gap') } else { 0 })
-        farmTarget          = $(if ($farmPlan) { [int](Get-GdMapValue $farmPlan 'Target') } else { 0 })
-        farmTimes           = $(if ($farmPlan) { [int](Get-GdMapValue $farmPlan 'Times') } else { 0 })
-    })
-
-    <# 旧实现里"活动关卡不在表里(WARN)/理智计划(INFO)"两句是算规则时顺手打的，现在随 Logs 数组按序回放 #>
-    foreach ($l in @($d.Logs)) {
-        $lvl = [string]$l.Level
-        if ($lvl -and ($lvl -ne 'INFO')) { Write-GdLog ([string]$l.Text) -Level $lvl } else { Write-GdLog ([string]$l.Text) }
-    }
-    $changes = @(foreach ($c in @($d.Changes)) { [string]$c })
-    $expected = @(foreach ($c in @($d.ExpectedChains)) { [string]$c })
-    $stageText = [string]$d.Stage
-
-    if ($Apply -and $changes.Count -gt 0) {
-        <# 写盘的就是 C# 改好的树(NewConfig)；回读核对留在壳里 —— 写失败/被 MAA 覆盖要立刻报警，这条纪律不过夜 #>
-        $bak = Backup-GdFile -Path $P.Config
-        Write-GdJson -Path $P.Config -Object $d.NewConfig
-        $intent = [ordered]@{}
-        foreach ($i in @($d.Intent)) { $intent[[string]$i.Name] = [bool]$i.Enable }
-        $verify = Read-GdJson -Path $P.Config
-        $bad = @()
-        foreach ($q in @($verify.Configurations.Default.TaskQueue)) {
-            $n = [string]$q.Name
-            if (-not $intent.Contains($n)) { continue }
-            if ([bool]$q.IsEnable -ne [bool]$intent[$n]) { $bad += "$n(期望 $($intent[$n])，实际 $($q.IsEnable))" }
-        }
-        if ($bad.Count) { throw "MAA 配置回读不一致：$($bad -join '; ')(备份：$(Split-Path -Leaf $bak))" }
-        Write-GdLog "MAA 配置已更新并校验通过(备份：$(Split-Path -Leaf $bak))" -Level OK
-    }
-    if ($changes.Count -eq 0) { $changes = @('(无需改动)') }
-
-    return [pscustomobject]@{
-        Path = $P.Config
-        Changes = $changes
-        ExpectedChains = $expected
-        Stage = $stageText
-        Applied = [bool]$Apply
-    }
-}
