@@ -385,7 +385,7 @@ pwsh -File install-task.ps1 -Uninstall
   config\settings.example.json  配置模板（入仓）
   config\settings.json  唯一需要配的文件（不入仓）
   lib\common.ps1       日志/JSON/备份/防睡眠/进程/通知
-  lib\detect.ps1       安装位置探测：进程 → 卸载表 → 磁盘浅层扫描
+  （2026-11-06 转接刀·运行面刀⑮ 笔(a) 起本行不再是目录项：lib\detect.ps1 已整件删除、本仓库不再带这一枚文件；探测判据的真身只住 tools\panel-cs\Detect.cs 一份，setup.ps1 直点 verb detect-installs）
   lib\decisions.ps1    今天刷什么：活动窗口、确认门、关卡校验
   lib\maa.ps1          MAA 队列改写 + 启动 + gui.log 判定
   lib\ark-farm.ps1     智能补材料（见 3.5）：目标清单解析、从 MAA 结算日志记掉落账、缺口→选关方案
