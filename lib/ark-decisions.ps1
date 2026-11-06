@@ -78,43 +78,11 @@ function Resolve-ArkPlan {
     return Invoke-GdCli -Verb 'decide-ark' -Body $body
 }
 
-function Get-ArkEvent {
-    <# 取活动数据(接口 -> MAA 本地缓存 -> 无)后交给 Resolve-ArkPlan(现即转发壳) #>
-    param([Parameter(Mandatory)]$S, [switch]$Offline, [switch]$IgnoreShopDone)
-
-    $now = Get-GdNowMs
-    $data = $null
-    $source = ''
-
-    if (-not $Offline -and $S.ark.activityApiUrl) {
-        try {
-            Enable-GdTls12   # 5.1 默认不发 TLS 1.2，这里不补一句的话活动接口在 5.1 下必然拉不到
-            $resp = Invoke-WebRequest -Uri $S.ark.activityApiUrl -TimeoutSec 8 -UseBasicParsing
-            $data = $resp.Content | ConvertFrom-Json
-            $source = 'MAA 活动接口'
-        } catch {
-            Write-GdLog "活动接口拉取失败($($_.Exception.Message))，改用本地缓存" -Level WARN
-        }
-    }
-    if (-not $data) {
-        $cache = Join-GdPath $S.paths.maaDir @($S.paths.maaActivityCache)
-        if (Test-Path -LiteralPath $cache) {
-            $age = (New-TimeSpan -Start (Get-Item -LiteralPath $cache).LastWriteTime).TotalHours
-            $data = Read-GdJson -Path $cache
-            $source = "MAA 本地缓存($([math]::Round($age,1)) 小时前)"
-            if ($age -gt [int]$S.ark.activityCacheMaxHours) {
-                Write-GdLog "活动缓存超过 $($S.ark.activityCacheMaxHours) 小时未刷新，结论可能滞后(MAA 启动后会自行更新)" -Level WARN
-            }
-        } else {
-            Write-GdLog "既拉不到活动接口、也没有本地缓存 → 按长草期处理" -Level WARN
-            $source = '无数据'
-        }
-    }
-
-    $a = @{ S = $S; Data = $data; Source = $source; Now = $now }
-    if ($IgnoreShopDone) { $a['IgnoreShopDone'] = $true }
-    return (Resolve-ArkPlan @a)
-}
+# ⚠ 刀⑯ 收官批 笔(b)(2026-11-06)：Get-ArkEvent 整枚出仓(37 行，取证 raw\k35a-cut16-fin-recon.txt)——
+#   取数三档(接口→MAA 本地缓存→无)与两句 WARN 原话全在核 verb read-ark-activity(Round.Data.cs::ArkActivity，
+#   信封 Data/Source/CacheAgeHours/CacheStale/ApiUrlGiven/Offline/Lines，Lines 全 WARN 裸话术串)，
+#   Round.SelfTest.cs 三档顺序档在位。消费方(ark-module StatusPlan／test-ark [t5])各自组装：
+#   Get-GdNowMs 现场时钟(不许动§9-2) + read-ark-activity + Lines 逐条回放 + Resolve-ArkPlan 转发壳。
 
 # ===== 每轮自证活动图(2026-10-12 第 1 刀) =====
 # 需求原话(用户)：「活动要打，需要打通活动」「直接用尝试用 maa 进入活动最后一关，如果通了就说明通关了」。

@@ -92,7 +92,14 @@ Register-GdModule ([pscustomobject]@{
             }
             StatusPlan    = {
                 param($S, $Offline)
-                $ark = Get-ArkEvent -S $S -Offline:([bool]$Offline)
+                # ---- 刀⑯ 收官批 笔(b)(2026-11-06)：Get-ArkEvent 出仓，取数半段改问核(换答方不换问法) ----
+                # 三档顺序(接口→MAA 本地缓存→无)与两句 WARN 原话全在 verb read-ark-activity(Round.Data.cs::ArkActivity)；
+                # 信封 Lines 全是 WARN 裸话术串，这里逐条回放；现场时钟留壳(Get-GdNowMs 不许动§9-2)。
+                $now = Get-GdNowMs
+                $d0 = Invoke-GdCli -Verb 'read-ark-activity' -Body ([pscustomobject]@{
+                    settings = [pscustomobject]@{ ark = $S.ark }; paths = $S.paths; offline = [bool]$Offline })
+                foreach ($l in @($d0.Lines)) { if ($l) { Write-GdLog ([string]$l) -Level WARN } }
+                $ark = Resolve-ArkPlan -S $S -Data $d0.Data -Source $d0.Source -Now $now
                 Write-Host "  方舟：$($ark.Mode)  理智刷 $($ark.Stage)  ← $($ark.Reason)" -ForegroundColor $(if ($ark.Mode -eq 'event-pending') { 'Yellow' } else { 'Gray' })
                 # 材料补刷一行：只按"今天若跑长草顺不带哪关"报，读三本账不联网。
                 # ---- 转接刀·运行面刀⑬ 笔(a)(2026-11-06)：判定整段问核(换答方不换问法) ----

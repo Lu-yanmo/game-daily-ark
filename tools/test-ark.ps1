@@ -90,13 +90,24 @@ try { Invoke-GdCli -Verb 'apply-maa-daily-config' -Body ([pscustomobject]@{ sett
 Check '坏关卡代号会被拦住' ($r4 -and $r4 -match 'NOT-A-STAGE')
 
 Write-Host "`n[t5] 方舟判定链路(会联网拉一次活动接口)"
-$a = Get-ArkEvent -S $S
+# ---- 刀⑯ 收官批 笔(b)(2026-11-06)：Get-ArkEvent 出仓，取数半段改问核(换答方不换问法) ----
+# 组合式＝Get-GdNowMs(现场时钟留壳§9-2) + read-ark-activity(三档与两句 WARN 原话全在核，Round.Data.cs::ArkActivity)
+# + Lines 逐条回放 + Resolve-ArkPlan(转发壳·领空折算臂留壳，k371 mutation 证有牙)。
+function Get-ArkEventViaKernel {
+    param($S, [switch]$Offline)
+    $now = Get-GdNowMs
+    $d0 = Invoke-GdCli -Verb 'read-ark-activity' -Body ([pscustomobject]@{
+        settings = [pscustomobject]@{ ark = $S.ark }; paths = $S.paths; offline = [bool]$Offline })
+    foreach ($l in @($d0.Lines)) { if ($l) { Write-GdLog ([string]$l) -Level WARN } }
+    return (Resolve-ArkPlan -S $S -Data $d0.Data -Source $d0.Source -Now $now)
+}
+$a = Get-ArkEventViaKernel -S $S
 Check '返回模式合法' (@('idle', 'event', 'event-pending') -contains $a.Mode) "mode=$($a.Mode) stage=$($a.Stage)"
 Check '有理智计划' ($a.Stage -and (Invoke-GdCli -Verb 'check-stages' -Body ([pscustomobject]@{ table = $table; stageText = ([string]$a.Stage) })).Bad.Count -eq 0) (Invoke-GdCli -Verb 'check-stages' -Body ([pscustomobject]@{ table = $table; stageText = ([string]$a.Stage) })).Note
 # 这条判据在 2026-10-12 第 1 刀**反了向**：旧口径是"没确认就整轮不烧理智"，
 # 新口径是"今天自证进不去 → 当日改刷长草套餐，理智照烧"(用户原话「活动要打…没打通就别空烧」)。
 Check 'event-pending 当日仍烧理智(改刷长草，不空放)' (-not ($a.Mode -eq 'event-pending' -and -not $a.ClearSanity)) "mode=$($a.Mode) clear=$($a.ClearSanity)"
-$b = Get-ArkEvent -S $S -Offline
+$b = Get-ArkEventViaKernel -S $S -Offline
 Check '离线可降级' (@('idle', 'event', 'event-pending') -contains $b.Mode) "source=$($b.Source)"
 
 Write-Host "`n[t7] 活动门(每轮自证)+商店领空 gate(假数据 + 临时 state，跑完还原)"
