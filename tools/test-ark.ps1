@@ -333,14 +333,32 @@ Check '第 30 节的名册与形状是两份独立事实源(不从金样反推�
 # New-GdRescueSkip/Clear-GdRescueShotDir/Get-GdRescueLedgerPath ＋两枚壳 Test-GdShotChanged/Add-GdRescueRecord，
 # 169 函数行)整件出仓，对面随门死的那部分不再重立；t13/t16 那 20 枚随壳侧退役，搬家账见 §11.165。
 # 这里照第十九刀留三枚无条件静态锚：一枚"退役不回潮"(有人把六枚定义搬回来就当场红)，两枚"搬过去的尺还在"。
-$visionRescuePs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-rescue.ps1') -Raw -Encoding utf8
-Check '兜底编排六枚的定义不在现树 PS 侧(双删是回归抓器：编排只住核内 vision_rescue 一处)' (
-    (-not $visionRescuePs.Contains('function Invoke-GdVisionRescue ')) -and
-    (-not $visionRescuePs.Contains('function New-GdRescueSkip ')) -and
-    (-not $visionRescuePs.Contains('function Clear-GdRescueShotDir ')) -and
-    (-not $visionRescuePs.Contains('function Get-GdRescueLedgerPath ')) -and
-    (-not $visionRescuePs.Contains('function Test-GdShotChanged ')) -and
-    (-not $visionRescuePs.Contains('function Add-GdRescueRecord ')))
+# 2026-11-06 刀⑮ 笔(a)：这枚读改成不依赖件在场——件在按老形咬件文本(负锚原样有牙)；件不在改成咬
+# "六枚没以命令形态在别处复活"(Get-Command 现读)。两臂都交得出数，缺读数不许长成活锚。
+$visionRescuePsPath = Join-Path $PSScriptRoot '..\lib\vision-rescue.ps1'
+$visionRescuePsOnDisk = Test-Path -LiteralPath $visionRescuePsPath
+$visionRescuePs = if ($visionRescuePsOnDisk) { Get-Content -LiteralPath $visionRescuePsPath -Raw -Encoding utf8 } else { '' }
+if ($visionRescuePsOnDisk) {
+    $vrSixTooth = (-not $visionRescuePs.Contains('function Invoke-GdVisionRescue ')) -and
+        (-not $visionRescuePs.Contains('function New-GdRescueSkip ')) -and
+        (-not $visionRescuePs.Contains('function Clear-GdRescueShotDir ')) -and
+        (-not $visionRescuePs.Contains('function Get-GdRescueLedgerPath ')) -and
+        (-not $visionRescuePs.Contains('function Test-GdShotChanged ')) -and
+        (-not $visionRescuePs.Contains('function Add-GdRescueRecord '))
+    $vrSixWhy = ''
+} else {
+    $vrRevived = @()
+    foreach ($vrFnName in @('Invoke-GdVisionRescue', 'New-GdRescueSkip', 'Clear-GdRescueShotDir', 'Get-GdRescueLedgerPath', 'Test-GdShotChanged', 'Add-GdRescueRecord')) {
+        if (Get-Command $vrFnName -ErrorAction SilentlyContinue) { $vrRevived += $vrFnName }
+    }
+    $vrSixTooth = (@($vrRevived).Count -eq 0)
+    # ⚠ 11-06 刀⑮ 笔(a) 验证自伤更正：原来这里挂一枚 $script:_vrSixWhy 且只在复活>0 时才赋值，
+    #   件不在又没复活时 detail 的 elseif 读一枚从没设过的脚本变量——strict mode 当场抛"无法检索变量"，
+    #   等于把「双绿臂」里最该安静的那条走成炸门。改本地变量＋两臂都先初始化，缺读数不许长成活锚也不许长成一枚雷。
+    $vrSixWhy = $(if (@($vrRevived).Count -gt 0) { '件已不在，但这几枚以命令形态复活：' + ($vrRevived -join ',') } else { '' })
+}
+Check '兜底编排六枚的定义不在现树 PS 侧(双删是回归抓器：编排只住核内 vision_rescue 一处；件在咬文本、件不在咬命令复活)' $vrSixTooth $(
+    if ($visionRescuePsOnDisk) { "件在场 $($visionRescuePs.Length) 字符" } elseif ($vrSixWhy) { $vrSixWhy } else { '件不在，六枚命令名册现读为空' })
 Check '刀③ 补尺两枚住在核内第 19 节(链不记帐 / context 原样递到问价层)' (
     ($arkCoreRs.Contains('第二十刀刀③ 补尺①')) -and ($arkCoreRs.Contains('第二十刀刀③ 补尺②')))
 Check '画面变没变的四形与 detail 压平两形住在 C# 自检里(Vision.SelfTest.cs 接守 t13/t16 摘下的那两族)' (
@@ -430,107 +448,58 @@ if (Test-Path -LiteralPath $liveAsst) {
 }
 
 Write-Host "`n[t13] 视觉兜底(全程不联网、不截图、不点任何东西)"
-if (Get-Command Get-GdVisionVerdictFromText -ErrorAction SilentlyContinue) {
-    $v1 = Get-GdVisionVerdictFromText -Text '{"blocking":true,"what":"中秋活动弹窗","clicks":[{"x":912,"y":233,"why":"右上角关闭"}]}'
-    Check '模型按格式回 → 解析出弹窗与坐标' (
-        $v1.Blocking -and $v1.What -match '弹窗' -and [int]$v1.X -eq 912 -and [int]$v1.Y -eq 233) "$($v1.What) ($($v1.X),$($v1.Y))"
-    # 样本用单引号拼：双引号里的反引号是转义符，``` 三个连写会把行尾的引号吃掉
-    $v2Lines = @(
-        '好的，我看了一下：'
-        '```json'
-        '{"blocking":true,"what":"公告","clicks":[{"x":80,"y":90,"why":"知道了"}]}'
-        '```'
-    )
-    $v2 = Get-GdVisionVerdictFromText -Text ($v2Lines -join "`n")
-    $v2Info = if ($v2) { "($($v2.X),$($v2.Y)) $($v2.What)" } else { '没解析出来' }
-    Check '裹了 markdown 代码块和一句话也能抠出 JSON' ($v2 -and [int]$v2.X -eq 80) $v2Info
-    $v3 = Get-GdVisionVerdictFromText -Text '{"blocking":false,"what":"主界面","clicks":[]}'
-    Check '没有弹窗时 blocking=false 且没有坐标' ($v3 -and -not $v3.Blocking -and $null -eq $v3.X) ($v3.What)
-    Check '回复不成 JSON 时返回空(不拿猜测当依据)' ($null -eq (Get-GdVisionVerdictFromText -Text '我看有个弹窗，你点右上角试试'))
-    Check '空回复不炸' ($null -eq (Get-GdVisionVerdictFromText -Text ''))
-    $sp = Get-GdVisionSystemPrompt
-    Check '提示词还要求"只回 JSON + 千分比坐标"' ($sp -match '只输出一个 JSON' -and $sp -match '千分比')
-    # 端点归一化：从控制台复制的"基础地址"多以 /v1 结尾，直接 POST 会 404，而 404 看起来像"模型不可用"。
-    Check '基础地址以 /v1 结尾会补成 /chat/completions(末尾多几个斜杠也一样)' (
-        (Resolve-GdVisionEndpoint -Base 'https://example.com/compatible-mode/v1/') -eq
-        'https://example.com/compatible-mode/v1/chat/completions')
-    Check '已经写全的地址不会再被补第二个 /chat/completions' (
-        (Resolve-GdVisionEndpoint -Base 'https://example.com/compatible-mode/v1/chat/completions') -eq
-        'https://example.com/compatible-mode/v1/chat/completions')
-    Check '地址留空回落到百炼公共端点' (
-        (Resolve-GdVisionEndpoint -Base '') -eq 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions')
-    Check '提示词还禁止点领取/前往参与这类推进状态的按钮' ($sp -match '领取' -and $sp -match '不要给')
-    # 2026-09-26：一次只给一个点位时，"点完画面没动"就只能整轮放弃；改成最多 3 个按把握排序的备选，
-    # 同一次问价里连着试(实测模型认得弹窗、却把 × 认成相邻的"暂不查看"，第二三个点位就是留给这种错的)。
-    Check '提示词允许最多 3 个候选点位，并要求按把握从大到小排' (
-        $sp -match 'clicks 最多 3 个' -and $sp -match '把握' -and $sp -notmatch 'clicks 最多 1 个')
-    Check '提示词仍把"只会关掉弹窗"当作唯一的点位性质' ($sp -match '关闭/取消/暂不/跳过/知道了')
-    # -AllowReward 是第 3 条规则的可选口子(默认关，要玩家在面板里明写勾选)。
-    # 两条分支都要判：只判默认分支的话，"勾一下就变成什么都能点"没人拦得住。
-    $spAllow = Get-GdVisionSystemPrompt -AllowReward $true
-    Check '勾了领奖档 → 允许给出明确的领取按钮' ($spAllow -match '已允许"领取日常奖励"' -and $spAllow -notmatch '绝对不要给"领取"')
-    Check '但领奖档仍然禁止花钱/推进进度那类按钮(充值、前往参与、开始行动、确定)' (
-        $spAllow -match '充值' -and $spAllow -match '前往参与' -and $spAllow -match '开始行动' -and $spAllow -match '绝对不给')
-    Check '领奖档不许改动其余规则(3 个点位/千分比/拿不准给空数组一样都在)' (
-        $spAllow -match 'clicks 最多 3 个' -and $spAllow -match '千分比' -and $spAllow -match '拿不准也一律给空数组')
-    Check '不勾就是硬禁：默认文案里"领取"和"不要给"绑在同一句(逐字不许变，改了要连配置页文案一起改)' (
-        $sp -match '绝对不要给"领取"' -and ($sp -split "`n" | Where-Object { $_ -match '绝对不要给"领取"' }).Count -eq 1)
-
-    # 点位数组：坏点位单独丢掉，不能把同批的好点位一起带走(模型常给 {"x":null})
-    $vMany = Get-GdVisionVerdictFromText -Text '{"blocking":true,"what":"公告","clicks":[{"x":null,"y":null,"why":"没坐标"},{"x":700,"y":200,"why":"右上角关闭"},{"x":"abc","y":300,"why":"不是数"},{"x":800,"y":210,"why":"备用"},{"x":900,"y":220,"why":"备用2"},{"x":950,"y":230,"why":"超标的第4个"}]}'
-    Check 'Clicks 只留 x/y 真是整数的那几个，最多 3 个' (
-        @($vMany.Clicks).Count -eq 3 -and [int]$vMany.Clicks[0].X -eq 700 -and [int]$vMany.Clicks[1].X -eq 800) $(
-        (@($vMany.Clicks) | ForEach-Object { "$($_.X),$($_.Y)" }) -join ' / ')
-    Check 'X/Y/Why 恒等于第 1 个点位(老代码与 t13 那批断言认的还是这三个字段)' (
-        [int]$vMany.X -eq 700 -and [int]$vMany.Y -eq 200 -and $vMany.Why -match '关闭') "$($vMany.X),$($vMany.Y) $($vMany.Why)"
-    Check '点位全坏时 Clicks 是空数组、X 为空(不拿猜测当依据)' (
-        (@((Get-GdVisionVerdictFromText -Text '{"blocking":true,"what":"x","clicks":[{"x":null,"y":null}]}').Clicks).Count -eq 0) -and
-        $null -eq (Get-GdVisionVerdictFromText -Text '{"blocking":true,"what":"x","clicks":[{"x":null,"y":null}]}').X)
-
-    # 1920x1080 的整窗位图：客户区左上角在位图里是 (8,31)，客户区 1904x1041
-    $shot = [pscustomobject]@{ ImgW = 1920; ImgH = 1080; ClientLeft = 8; ClientTop = 31; ClientW = 1904; ClientH = 1041 }
-    function vd($x, $y) { return [pscustomobject]@{ X = $x; Y = $y } }
-    $p1 = Get-GdRescueClickPoint -Shot $shot -Verdict (vd 500 500)
-    Check '千分比 → 客户区坐标(要减掉标题栏/边框原点)' ($p1 -and $p1.ClientX -eq 952 -and $p1.ClientY -eq 509) $(
-        if ($p1) { "($($p1.ClientX),$($p1.ClientY))" } else { '被拒了' })
-    Check '指到标题栏上会被拒(不给越界点击)' ($null -eq (Get-GdRescueClickPoint -Shot $shot -Verdict (vd 500 10)))
-    Check '模型没给坐标时不给点击点' ($null -eq (Get-GdRescueClickPoint -Shot $shot -Verdict (vd $null $null)))
-    Check '坐标超出 0-1000 视为胡说，拒掉' ($null -eq (Get-GdRescueClickPoint -Shot $shot -Verdict (vd 5000 5)))
-    Check '点右下角最后一个像素也算越界' (
-        $null -eq (Get-GdRescueClickPoint -Shot $shot -Verdict (vd 1000 1000)))
-
-    # 2026-10-28 甲档第二十刀刀③：本节原咬 Test-GdShotChanged 转发壳的四发实跑(同图/单格抖/整块暗/没签名)
-    # 随壳出仓退役。"点完画面到底变没变必须用粗亮度签名、不能用文件哈希"这条判据没跟着消失：四形现由
-    # panel-cs --visiontest 接守(Vision.SelfTest.cs:279-306，含"两次画面格数不同→说不清别硬判"那形)，
-    # 阈值为什么是"≥2 格、每格 ≥3 档"记在 Vision.cs 的 shot-changed 段，核内消费点另有第 19 节
-    # 「点了但画面没变」那一格钉话术($chg.Detail 出现两次的原样怪癖)。
-    $fnShot = (Get-Command Save-GdWindowShot).Definition
-    $fnClick = (Get-Command Send-GdArkClick).Definition
-    Check '截图函数会带回 Sig(不然"画面变没变"那一路全是瞎的)' ($fnShot -match 'Sig = ')
-    Check '点击走"抢前台 + 真实鼠标"，PostMessage 只当退路' (
-        $fnClick -match 'TryForeground' -and $fnClick -match 'RealClick' -and $fnClick -match 'ClickOnce')
-    # 2026-10-26 起兜底内核不认识端游了：截图/点击都向靶子要(lib\vision-ark.ps1 的 New-GdVisionTarget-ark)。
-    # 编排层那半"内核里不能再出现端游那三个动作"随 Invoke-GdVisionRescue 出仓，判据改由 Rust 第 19/30 节的
-    # 现场 verb 名册接守(ark 两枚 ark-window-shot/ark-window-click)；这里判的还是另一头——靶子必须把
-    # Shot/Click 接到端游那两枚真件上，接不上就是"兜底静默不生效"。
-    $fnTarget = (Get-Command New-GdVisionTarget-ark).Definition
-    Check '端游靶子把 Shot/Click 接到 Save-GdWindowShot / Send-GdArkClick 上' (
-        $fnTarget -match 'Save-GdWindowShot' -and $fnTarget -match 'Send-GdArkClick')
-    Check '最小化的窗口会先 SW_RESTORE 再拍(否则拍到的是 168x29 空位图)' (
-        $fnShot -match 'IsIconic' -and $fnShot -match 'Restore')
-    # 2026-10-28 甲档第二十刀刀③：本节原有两枚真跑格("arkVisionRescue=false 一次都不试"与"没提权或没 key
-    # 直接放弃")随编排壳退役。开关话术必须带 settings 键名这条判据没丢，它在 C# 那侧由 --livetest
-    # 两格钉住(Live.SelfTest.cs:137/174 认 'arkVisionRescue=false，视觉兜底已关闭')；闸门顺序(Python 排在
-    # 截图之前)现由核内投影序钉住(第 19 节 rescue-ok 的 resolve-rescue-context 排在 ark-window-shot 之前)。
-    # 多候选循环那三格(逐个试/先剔越界/全灭话术)与"账本由调用方点""-Context 递到问价层"两格一并出仓，
-    # 前者在第 30 节 ark 27 档金样里有原样的步序，后两枚是本刀新立的第 19 节补尺两格(见 --selftest)。
-    $fnRaw = (Get-Command Invoke-GdVisionRaw).Definition
-    Check '问价那一层把自动化的处境拼进用户那句话，并且截到 200 字(不塞日志原文)' (
-        $fnRaw -match '自动化这边的处境' -and $fnRaw -match '200')
-    # 2026-10-28 甲档第二十二刀：这里原有那枚「-Context 从问价壳递到起子进程那层」随 Invoke-GdVisionAsk 壳
-    # 出仓退役(它唯一吃的 $fnAsk 没了对面)；判据现只住核内补尺②——main.rs 第 19 节钉的是 context 的值本身到了。
-} else {
-    Check 'lib\vision-rescue.ps1 存在(方舟仓库少了它兜底就不生效)' $false '没找到 Get-GdVisionVerdictFromText'
+# 2026-11-06 刀⑮ 笔(d)：本节原有那二十二枚行为级格真调 lib\vision-rescue.ps1 与 lib\vision-ark.ps1 腹内的六枚函数
+# (抠回件、拼提示词、归一端点、千分比换算、截图带回签名、问价)。三件本体随本批出仓，这二十二枚的家由覆盖面尺
+# raw\k17a-cut15d-vision-coverage.txt 逐格对平到 C# 那侧(HIT 十六／WEAK 十五逐格另查／MISS 十四里 vision 那六枚
+# 另查——MISS 是"名字最长公共子串不够长"，不是"没有对面"：L453 的对面的确在 Vision.SelfTest.cs:146，只是它把
+# "模型按格式回"写成了"按格式回"，L468 与 :157 逐字同名)，逐档判语进本帧 docs。留下的换成无条件格，三条在册规矩：
+#   ① 对面不是"钩子格还在"而是**同一条判据在 --visiontest／--livetest 里被重跑一遍** ⇒ 按刀③ 那句"把真调换成
+#      钩子格还在的形钉等于给壳续命"直接删格，不换取法重写；
+#   ② 删格不等于删判据：件在不在都跑的那四枚是承接，只在件不在时跑的负锚挡半迁移(同事实格在上面)；
+#   ③ .cs 文本取不回来一律当场红并交出字节数(交空串＝尺没接电)，静默跳过正是要防的"绿着但没人检查"。
+$rescueOnDisk = Test-Path -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-rescue.ps1')
+Check '兜底内核件与 Get-GdVisionVerdictFromText 命令同一个事实(同在同不在，半迁移红)' (
+    $rescueOnDisk -eq [bool](Get-Command Get-GdVisionVerdictFromText -ErrorAction SilentlyContinue)) "件=$rescueOnDisk"
+$visionCsT13 = ''
+try { $visionCsT13 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Vision.cs') -Raw -Encoding utf8 } catch { }
+Check '提示词那一份规则住在核侧(只回 JSON＋千分比＋clicks 最多 3 个按把握排＋只允许关掉弹窗那类＋默认档硬禁领取)' (
+    $visionCsT13.Length -gt 0 -and $visionCsT13.Contains('只输出一个 JSON') -and $visionCsT13.Contains('千分比') -and
+    $visionCsT13.Contains('clicks 最多 3 个') -and $visionCsT13.Contains('按你的把握从大到小排') -and
+    $visionCsT13.Contains('关闭/取消/暂不/跳过/知道了') -and $visionCsT13.Contains('绝对不要给')) ("Vision.cs=" + $visionCsT13.Length + " 字符")
+$liveCsT13 = ''
+try { $liveCsT13 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Live.cs') -Raw -Encoding utf8 } catch { }
+Check '端游截图与点击那半的规矩住在核侧(带回 Sig、最小化先 SW_RESTORE、抢不到前台才退 PostMessage)' (
+    $liveCsT13.Length -gt 0 -and $liveCsT13.Contains('"Sig"') -and $liveCsT13.Contains('IsIconic') -and
+    $liveCsT13.Contains('SW_RESTORE') -and $liveCsT13.Contains('TryForeground') -and
+    $liveCsT13.Contains('RealClick') -and $liveCsT13.Contains('ClickOnce')) ("Live.cs=" + $liveCsT13.Length + " 字符")
+$cliCsT13 = ''
+try { $cliCsT13 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Cli.cs') -Raw -Encoding utf8 } catch { }
+$t13Verbs = @('vision-ask-model', 'parse-vision-verdict', 'build-vision-prompt', 'resolve-vision-endpoint',
+    'vision-click-point', 'shot-changed', 'ark-window-shot', 'ark-window-click', 'ark-desktop-state',
+    'compose-ark-desktop-state', 'resolve-rescue-context', 'mumu-screen-shot', 'mumu-screen-click')
+$t13Miss = @($t13Verbs | Where-Object { $cliCsT13 -notmatch ('verb == "' + [regex]::Escape($_) + '"') })
+Check '兜底那一路的十三枚出口全在核内分派链上(三件出仓后这是唯一通路，缺哪枚点名哪枚)' ($t13Miss.Count -eq 0) ($t13Miss -join ',')
+$visionStT13 = ''
+try { $visionStT13 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Vision.SelfTest.cs') -Raw -Encoding utf8 } catch { }
+Check '那二十二枚的判语在 --visiontest 里逐族重跑(抠件／点位上限／越界拒／端点补全／桌面态／画面签名六族同名在场)' (
+    $visionStT13.Length -gt 0 -and $visionStT13.Contains('裹了 markdown 代码块和一句话也能抠出 JSON') -and
+    $visionStT13.Contains('Clicks 只留整数点位、最多 3 个') -and
+    $visionStT13.Contains('坐标超出 0-1000 视为胡说，拒掉') -and
+    $visionStT13.Contains('基础地址以 /v1 结尾会补成 /chat/completions') -and
+    $visionStT13.Contains('桌面名读不到') -and $visionStT13.Contains('两次画面格数不同')) ("Vision.SelfTest.cs=" + $visionStT13.Length + " 字符")
+if (-not $rescueOnDisk) {
+    Check 'PS 侧那六枚兜底真身没在现树复活(问价／解析／提示词／端点／换算／截图签名)' (
+        -not (Get-Command Get-GdVisionVerdictFromText -ErrorAction SilentlyContinue) -and
+        -not (Get-Command Get-GdVisionSystemPrompt -ErrorAction SilentlyContinue) -and
+        -not (Get-Command Resolve-GdVisionEndpoint -ErrorAction SilentlyContinue) -and
+        -not (Get-Command Get-GdRescueClickPoint -ErrorAction SilentlyContinue) -and
+        -not (Get-Command Invoke-GdVisionRaw -ErrorAction SilentlyContinue) -and
+        -not (Get-Command Save-GdWindowShot -ErrorAction SilentlyContinue))
+    $liveStT13 = ''
+    try { $liveStT13 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Live.SelfTest.cs') -Raw -Encoding utf8 } catch { }
+    Check '问价那一层"拼处境＋截 200 字"两条住在核侧(截断在 Live.cs，逐字金样在 --livetest 那两格)' (
+        $liveCsT13.Contains('自动化这边的处境') -and $liveCsT13.Contains('Substring(0, 200)') -and
+        $liveStT13.Contains('自动化这边的处境') -and $liveStT13.Length -gt 0) ("Live.SelfTest.cs=" + $liveStT13.Length + " 字符")
 }
 
 Write-Host "`n[t14] 点了没动怎么说、怎么早退(2026-09-25 一天里两次改口的教训都在这里)"
@@ -571,8 +540,24 @@ Check '任务名/重试次数/最后点击位置三个字段照常带上' (
     $hintDead -match 'StartUp@GameStart' -and $hintDead -match '269' -and $hintDead -match '638,663')
 Check '空片段不给状态、也不给结论' (
     (-not (Invoke-GdCli -Verb 'parse-asst-state' -Body ([pscustomobject]@{ text = '' })).Task) -and (((Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = '' })).Hint) -eq ''))
-# 探测函数：纯读，不动窗口、不点东西。锁屏与否按"输入桌面叫什么"判，读不到就说读不到(别把未知说成锁屏)。
-if (Get-Command Get-GdArkDesktopState -ErrorAction SilentlyContinue) {
+# 探测那一路：桌面态/截图/点击的真身在核内(Live.cs 那三段＋GdWin.cs 那份 P/Invoke 名单)，PS 后端件随本批出仓。
+# 2026-11-06 刀⑮ 笔(d)：下面两枚 GdWin.cs 钉**提出护栏**——它们量的是 tools\gdinterop\GdWin.cs 的名单在场，
+# 与 lib\vision-ark.ps1 在不在**不同轴**；留在护栏内＝件一摘这两枚跟着断电(在册那条"桌子搬了家而九格靠空串假绿")
+# 正是这一形。护栏自此只留"件在才跑得动的真调格"；件不在不许正锚空咬，改咬那三枚没复活＋桌面态金样在 --visiontest 重跑。
+$arkVisionFileOnDisk = Test-Path -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-ark.ps1')
+Check '端游视觉后端件与 Get-GdArkDesktopState 命令同一个事实(同在同不在，半迁移红)' (
+    $arkVisionFileOnDisk -eq [bool](Get-Command Get-GdArkDesktopState -ErrorAction SilentlyContinue)) "件=$arkVisionFileOnDisk"
+$gdWinCs = ''
+try { $gdWinCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\tools\gdinterop\GdWin.cs') -Raw -Encoding utf8 } catch { }
+$arkVisionTxt = if ($arkVisionFileOnDisk) { Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-ark.ps1') -Raw -Encoding utf8 } else { '' }
+Check '桌面名走 OpenInputDesktop + UOI_NAME，用完关掉句柄(名单只在 tools\gdinterop\GdWin.cs 里，也不许内联回 PS 那份)' (
+    $gdWinCs.Length -gt 0 -and $gdWinCs -match 'OpenInputDesktop' -and $gdWinCs -match 'GetUserObjectInformationW' -and
+    $gdWinCs -match 'CloseDesktop' -and $arkVisionTxt -notmatch 'Add-Type -TypeDefinition') \
+    ("GdWin.cs={0} 字符 / vision-ark 仍内联 C#={1}" -f $gdWinCs.Length, ($arkVisionTxt -match "TypeDefinition"))
+Check '探测还能说清"谁占着前台"，并且读窗口自身状态(最小化/可见/矩形)' (
+    $gdWinCs.Length -gt 0 -and $gdWinCs -match 'GetWindowThreadProcessId' -and $gdWinCs -match 'IsWindowVisible' -and
+    $gdWinCs -match 'WindowRectText')
+if ($arkVisionFileOnDisk) {
     $st = Get-GdArkDesktopState -Hwnd $null
     Check '探测会报出输入桌面(未锁屏=Default)' ($st.Detail -match '输入桌面=') $st.Detail
     Check '桌面名读不到时 Locked 给"不知道"而不是"锁屏了"' (
@@ -584,24 +569,29 @@ if (Get-Command Get-GdArkDesktopState -ErrorAction SilentlyContinue) {
     Check '探测顺手记下光标位置(判"这一轮鼠标进不进得来"的现场量)；不在正常桌面时改成说清为什么读不到' (
         $st.Detail -match '光标在 ' -or ($st.Desktop -ne 'Default' -and $st.Detail -match '不在正常桌面')) $st.Detail
     $fnGrab = (Get-Command Invoke-GdArkForegroundGrab).Definition
-    # B0(2026-09-29)：这二十来个 user32 签名不再内联在 lib\vision-ark.ps1 的 here-string 里，逐字搬进
-    # tools\gdinterop\GdWin.cs 由 Add-GdInterop 现编 —— 下面两条钉名单的断言随之改读那份 .cs 的文本。
-    # 第一条把"名单只在 GdWin.cs 里"钉成同一件事：vision-ark 若还留着 Add-Type -TypeDefinition，
-    # 两个宿主会当场抛"类型名称 GdWin 已存在"(2026-09-29 实测)，所以它同时是"迁移有没有做一半"的门。
-    $gdWinCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\tools\gdinterop\GdWin.cs') -Raw -Encoding utf8
-    $arkVisionTxt = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-ark.ps1') -Raw -Encoding utf8
-    Check '桌面名走 OpenInputDesktop + UOI_NAME，用完关掉句柄(名单只在 tools\gdinterop\GdWin.cs 里)' (
-        $gdWinCs -match 'OpenInputDesktop' -and $gdWinCs -match 'GetUserObjectInformationW' -and
-        $gdWinCs -match 'CloseDesktop' -and $arkVisionTxt -notmatch 'Add-Type -TypeDefinition') `
-        ("GdWin.cs={0} 字符 / vision-ark 仍内联 C#={1}" -f $gdWinCs.Length, ($arkVisionTxt -match 'TypeDefinition'))
-    Check '探测还能说清"谁占着前台"，并且读窗口自身状态(最小化/可见/矩形)' (
-        $gdWinCs -match 'GetWindowThreadProcessId' -and $gdWinCs -match 'IsWindowVisible' -and
-        $gdWinCs -match 'WindowRectText')
     Check '抢前台只动窗口状态，绝不往客户区点一下，并把现场带回 Detail' (
         $fnGrab -match 'TryForeground' -and $fnGrab -notmatch 'RealClick' -and $fnGrab -notmatch 'ClickOnce' -and
         $fnGrab -match 'st\.Detail')
 } else {
-    Check 'lib\vision-rescue.ps1 存在(方舟仓库少了它探测就不生效)' $false '没找到 Get-GdArkDesktopState'
+    Check 'PS 端游后端那三枚没在现树复活(找窗口／拍窗口／点窗口)' (
+        -not (Get-Command Get-GdArkWindow -ErrorAction SilentlyContinue) -and
+        -not (Get-Command Save-GdWindowShot -ErrorAction SilentlyContinue) -and
+        -not (Get-Command Send-GdArkClick -ErrorAction SilentlyContinue))
+    $visionStT14 = ''
+    try { $visionStT14 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Vision.SelfTest.cs') -Raw -Encoding utf8 } catch { }
+    $liveStT14 = ''
+    try { $liveStT14 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Live.SelfTest.cs') -Raw -Encoding utf8 } catch { }
+    Check '桌面态那四格改由 --visiontest 那族金样接住(读不到→无法判断／未锁屏没窗口有光标／屏保两句都说清／最小化不可见矩形并排)' (
+        $visionStT14.Length -gt 0 -and $visionStT14.Contains('桌面名读不到') -and
+        $visionStT14.Contains('未锁屏 + 没窗口 + 有光标') -and
+        $visionStT14.Contains('屏保/登录桌面 + 前台被人占着') -and
+        $visionStT14.Contains('最小化+不可见+矩形三样并排')) ('Vision.SelfTest.cs=' + $visionStT14.Length + ' 字符')
+    # 11-06 刀⑮ 笔(d)-2 复跑红一次照登：首拍把 TryForeground 去问 Live.SelfTest.cs(现读 0 处)，而它的真身在
+    # Live.cs(现读 2 处)——判语句自己写的是「Live.cs 走 TryForeground」，取件取了另一本＝跨轴。金样话术那句确实
+    # 住在 SelfTest(现读 1 处)，所以两串各归各家：话术问 SelfTest、窗口调用问 Live.cs，取证轴两本都印出来。
+    Check '抢前台那一条在核侧也只动窗口状态(--livetest 钉"全量注入时一个字都不碰窗口调用"，TryForeground 的真身在 Live.cs)' (
+        $liveStT14.Length -gt 0 -and $liveStT14.Contains('全量注入时一个字都不碰窗口调用') -and
+        $liveCsT13.Contains('TryForeground')) ('Live.cs=' + $liveCsT13.Length + " 字符 / Live.SelfTest.cs=" + $liveStT14.Length + ' 字符')
 }
 
 Write-Host "`n[t15] MAA 自己把队列跑空了，别再傻等 22 分钟(2026-09-25 07:53 那轮现场暴露的)"
@@ -641,8 +631,13 @@ if (Test-Path -LiteralPath $askPath) {
     Check '问哪一路由清单的 VisionKind 决定，这份文件里没有 ark/mumu 硬对照表' (
         $askSrc -match 'VisionKind' -and $askSrc -notmatch "=\s*'mumu'")
     Check '给了 -Image 就直接用那张图(不截图，也不会因为后端不在就放弃)' ($askSrc -match '\$Image')
-    Check '开关关着/没提权/对象不在时只说人话，不硬拍' (
-        $askSrc -match 't\.Enabled' -and $askSrc -match 'AdminWhy' -and $askSrc -match 't\.Alive')
+    # 2026-11-06 刀⑮ 笔(c)：这一格的老形咬的是 $t.Enabled / $t.AdminWhy / $t.Alive —— 那是薄壳自己拿靶子对象、
+    # 自己判"对象还在不在"的年代。现在三道闸的判语全在核内 resolve-rescue-context 腹内(闸序 hasBuilder→enabled→
+    # isAdmin→hasKey→python→alive)，薄壳只转达：Enabled / NeedsAdmin+AdminWhy / CanAsk(+Skip)。所以正锚换成新形，
+    # 并补一枚负锚——薄壳不许再自己拼 Alive(搬家非增删；话术与判语只由核供一次，alive 那格由 --livetest 盯)。
+    Check '开关关着/没提权/对象不在时只说人话，不硬拍(三闸现由 ctx 转达，判语在核内)' (
+        $askSrc -match 'ctx\.Enabled' -and $askSrc -match 'AdminWhy' -and $askSrc -match 'ctx\.CanAsk' -and
+        $askCode -notmatch 't\.Alive')
 } else {
     Check 'tools\vision-ask.ps1 存在(只问不点的诊断入口)' $false '没找到这份文件'
 }

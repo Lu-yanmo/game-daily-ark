@@ -389,8 +389,7 @@ pwsh -File install-task.ps1 -Uninstall
   lib\decisions.ps1    今天刷什么：活动窗口、确认门、关卡校验
   lib\maa.ps1          MAA 队列改写 + 启动 + gui.log 判定
   lib\ark-farm.ps1     智能补材料（见 3.5）：目标清单解析、从 MAA 结算日志记掉落账、缺口→选关方案
-  lib\vision-rescue.ps1 卡住时的视觉兜底公共层（问模型→抠 JSON→换算点位→点一下→比对画面；见第 2.1 节，不想要就关）
-  lib\vision-ark.ps1  兜底的端游后端：PrintWindow 拍窗口 + 抢前台真实点击（要管理员，跟端游本身一致）
+  （11-06 刀⑮ 笔(d)：lib\vision-rescue.ps1／lib\vision-ark.ps1 已整件出仓 —— 兜底判据住核内(resolve-rescue-context)，PrintWindow 拍窗口＋抢前台＋发消息点击的真身在 tools\panel-cs\Live.cs；第 2.1 节讲的行为一字未变，不想要照旧关开关）
   lib\supervisor.ps1  监督 agent（见第 2.3 节）：证据→状态→动作三段纯函数 + 起停/记账；不点鼠标，干预只有重启 MAA 一种
   tools\supervise.ps1 监督的心跳子进程本体（真跑一轮时自动隐藏起；-Once 手动拍一拍）
   tools\vision-ask.ps1 只问不点：把现屏交给模型、原样打印回答，一次点击都不做

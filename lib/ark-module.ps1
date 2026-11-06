@@ -38,11 +38,12 @@ Register-GdModule ([pscustomobject]@{
         SettingsBlock    = 'ark'              # $S.ark —— Test-GdShopDoneEnabled 读 shopDoneStopsEvent 用
         PathKeys         = @('maaDir')        # 该催的助手目录(口径要和 Get-GdRequiredPathKeys 一致)
         # 这一路的业务库，由入口在顶层 dot-source(函数里点的会连函数定义一起消失，见 modules.ps1 的 Import-GdModules)。
-        # 只写内核不管的那三个：ark-decisions.ps1 归 lib\decisions.ps1 那个门面按文件在不在点，不重复列。
-        # vision-rescue.ps1 是两路共用的兜底内核(两份清单都写它，Get-GdModuleLibPaths 按文件名去重、只点一次)；
-        # vision-ark.ps1 只有这一路用(PrintWindow 拍端游窗口 + 抢前台真实点击)，即 New-GdVisionTarget-ark 的出处。
+        # 只写内核不管的那一枚——ark-decisions.ps1 归 lib\decisions.ps1 那个门面按文件在不在点，不重复列。
+        # 11-06 转接刀·运行面刀⑮ 笔(d)：vision-rescue.ps1(两路共用的兜底内核)与 vision-ark.ps1(New-GdVisionTarget-ark 的出处)随三件本体整件出仓——
+        #   七道闸顺序、开关、key、Python、点位换算、"画面变没变"与救火记账的真身自此只在两处：核内 resolve-rescue-context(含 --selftest 第 19 节投影序)与 tools\panel-cs(Vision.cs／Live.cs)。
+        #   本清单不再声明 PS 后端："带没带兜底"从此不由 Libs 供数(test-modules 那族两臂格按"名册摘净＋自检名单同步"闭合，只删一头都红)。
         # ark-farm.ps1 是「材料补刷」的判定+记账层(目标清单/掉落学习表/自记账库存)，只有方舟这一路有对等物。
-        Libs             = @('maa.ps1', 'vision-rescue.ps1', 'vision-ark.ps1')
+        Libs             = @('maa.ps1')
         # 11-04 转接刀·运行面刀⑦ 笔(c)：'ark-daily.ps1' 整件出仓，故此处不再列它(不是"漏列"——漏列会被
         # tools\test-modules.ps1 的 -MissingOnly 那格抓成"清单写了而文件不在"，反过来文件没了而名单还写着才是红)。
         # 摘件前置＝岛内函数逐枚的岛外零活调用点现拍(§11.235)；运行面那条腿早换了宿主：daily-clear.ps1 →
