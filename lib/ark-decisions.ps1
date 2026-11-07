@@ -45,8 +45,8 @@ function Resolve-ArkPlan {
       这里只组装规则要用的值 —— 真实时钟的 dow(周日按 7，老行为原样保留)。
       ⚠ 刀⑯ 笔(d)-1(2026-11-06)改口：旧组值三枚读件(Get-GdAckMap／Get-GdShopDoneMap／Get-GdArkEventProbe)
       与领空 flag 尺 Test-GdShopDoneEnabled 本批出仓，改指核 read-decision-state **一次**取齐(Ack／ShopDone／
-      ShopDoneGateOpen／Probe 四格)；"给不给领空图"的折算仍在本壳(吃核交回的 ShopDoneGateOpen——真身
-      Round.FlagEnabled：缺省即开启、显式写 false 才关)，IgnoreShopDone 语义不变。settings 只喂本路那一块
+      ShopDoneGateOpen／Probe 四格)；"给不给领空图"的折算原在本壳两行，刀㉑ 笔(b)-1(2026-11-08)起进核：本壳只传
+      可选入键 ignoreShopDone(折图真身＝Round.FlagEnabled：缺省即开启、显式写 false 才关)，IgnoreShopDone 语义不变。settings 只喂本路那一块
       (真身 BlockOf 按 game 现问块名，喂全量与喂本块同一读数)。返回信封 data(PSCustomObject，属性名与
       顺序和旧版逐字一致)。
     #>
@@ -57,23 +57,20 @@ function Resolve-ArkPlan {
         [Parameter(Mandatory)][long]$Now,
         [switch]$IgnoreShopDone
     )
-    $dow = [int](Get-Date).DayOfWeek
-    if ($dow -eq 0) { $dow = 7 }
-    $ds = Invoke-GdCli -Verb 'read-decision-state' -Body ([pscustomobject]@{
+    $ci = Invoke-GdCli -Verb 'compose-decision-inputs' -Body ([pscustomobject]@{
         game = 'ark'
         settings = [pscustomobject]@{ ark = $S.ark }
+        ignoreShopDone = [bool]$IgnoreShopDone
     })
-    $shopDone = @{}
-    if (-not $IgnoreShopDone -and $ds.ShopDoneGateOpen) { $shopDone = $ds.ShopDone }
     $body = [pscustomobject]@{
         ark = $S.ark
-        dow = $dow
+        dow = $ci.Dow
         now = $Now
         data = $Data
         source = $Source
-        ack = $ds.Ack
-        shopDone = $shopDone
-        probe = $ds.Probe
+        ack = $ci.Ack
+        shopDone = $ci.ShopDone
+        probe = $ci.Probe
     }
     return Invoke-GdCli -Verb 'decide-ark' -Body $body
 }

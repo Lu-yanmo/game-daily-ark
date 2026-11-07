@@ -22,12 +22,15 @@ Show-GdCommonScreensaverChecks
 # 不剥注释的"正向锚"会在真身被摘掉后照样绿——那是本仓登记过的"锚不是调用"形。
 $fnPlan = [string](Get-Command Resolve-ArkPlan -ErrorAction SilentlyContinue).Definition
 $fnPlan = ($fnPlan -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
-Check '刀⑯ 笔(d)-1 核臂在：Resolve-ArkPlan 现问 read-decision-state 一次取齐(ack／领空／自证三枚读件不再各开一把)' (
-    $fnPlan.Contains("Invoke-GdCli -Verb 'read-decision-state'") -and
+# 刀㉑ 笔(b)-1(2026-11-08)改口：组值半段现问 compose-decision-inputs 一次取齐，「给不给领空图」的折算真身进核(可选入键 ignoreShopDone)，本壳不再有 FlagEnabled 表达式与 read-decision-state 那次问；read-decision-state 本身仍在位(Show-GdGateState／门侧夹具在吃)，其出仓另族。
+Check '刀㉑ 笔(b)-1 核臂在：Resolve-ArkPlan 现问 compose-decision-inputs 一次取齐(旧三枚读件与那次 read-decision-state 都不再出现在组值半段)' (
+    $fnPlan.Contains("Invoke-GdCli -Verb 'compose-decision-inputs'") -and
+    -not $fnPlan.Contains('read-decision-state') -and
     -not $fnPlan.Contains('Get-GdAckMap') -and -not $fnPlan.Contains('Get-GdShopDoneMap') -and -not $fnPlan.Contains('Test-GdShopDoneEnabled')) $(
     if ($fnPlan.Length -eq 0) { 'Resolve-ArkPlan 不在场(尺没接到电)' } else { "len=$($fnPlan.Length)" })
-Check '刀⑯ 笔(d)-1 折算在：领空图给不给吃的是核交回的 ShopDoneGateOpen(PS 侧不再再造一把 flag 尺；IgnoreShopDone 语义仍在)' (
-    $fnPlan.Contains('$ds.ShopDoneGateOpen') -and $fnPlan.Contains('$IgnoreShopDone')) $('len=' + $fnPlan.Length)
+Check '刀㉑ 笔(b)-1 折算在核：组值半段只传可选入键 ignoreShopDone，领空吃核交回的 $ci.ShopDone(PS 侧不再有 FlagEnabled 与 ShopDoneGateOpen)' (
+    $fnPlan.Contains('ignoreShopDone = [bool]$IgnoreShopDone') -and $fnPlan.Contains('$ci.ShopDone') -and
+    -not $fnPlan.Contains('$ds.ShopDoneGateOpen') -and -not $fnPlan.Contains('FlagEnabled')) $('len=' + $fnPlan.Length)
 
 # 行为级(判据换家的正对照)：核把原表与"给不给"分两枚键交回——ShopDoneGateOpen 不消费原表，
 # 领空门折算吃的就是这一枚；旧"语义边界"格(表读件不取 ShopDoneGateOpen)随三枚读件出仓，此格承其位。
