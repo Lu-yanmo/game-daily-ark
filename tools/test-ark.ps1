@@ -479,11 +479,20 @@ Check '端游视觉后端件与 Get-GdArkDesktopState 命令同一个事实(同�
     $arkVisionFileOnDisk -eq [bool](Get-Command Get-GdArkDesktopState -ErrorAction SilentlyContinue)) "件=$arkVisionFileOnDisk"
 $gdWinCs = ''
 try { $gdWinCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\tools\gdinterop\GdWin.cs') -Raw -Encoding utf8 } catch { }
-$arkVisionTxt = if ($arkVisionFileOnDisk) { Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-ark.ps1') -Raw -Encoding utf8 } else { '' }
-Check '桌面名走 OpenInputDesktop + UOI_NAME，用完关掉句柄(名单只在 tools\gdinterop\GdWin.cs 里，也不许内联回 PS 那份)' (
+Check '桌面名走 OpenInputDesktop + UOI_NAME，用完关掉句柄(名单只在 tools\gdinterop\GdWin.cs 里)' (
     $gdWinCs.Length -gt 0 -and $gdWinCs -match 'OpenInputDesktop' -and $gdWinCs -match 'GetUserObjectInformationW' -and
-    $gdWinCs -match 'CloseDesktop' -and $arkVisionTxt -notmatch 'Add-Type -TypeDefinition') \
-    ("GdWin.cs={0} 字符 / vision-ark 仍内联 C#={1}" -f $gdWinCs.Length, ($arkVisionTxt -match "TypeDefinition"))
+    $gdWinCs -match 'CloseDesktop') ("GdWin.cs={0} 字符" -f $gdWinCs.Length)
+# 2026-11-08 刀㉑ 笔(c)：上面这枚格原还带一条合取「也不许内联回 PS 那份」，那是**哑的**——它咬的是
+#   lib\vision-ark.ps1 的全文，而那件已整件出仓，取数恒空串 ⇒ -notmatch 恒真(在册「空串 -match 假绿」那一形)。
+#   语义不跟着埋：另立一枚活格，现扫 lib\*.ps1 全体，谁内联 Add-Type 加 TypeDefinition 当场红；
+#   取数一本都没扫到也当场红，不许演成「没文件＝没污染」。全树现拍这根针只有本文件这一枚命中，lib 侧 0 枚。
+$libPs1Files = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot '..\lib') -Filter '*.ps1' -File)
+Check 'PS 侧 lib 那一层不许把 C# 内联回来(名单只住 tools\gdinterop，Add-Type -TypeDefinition 零命中)' (
+    (@($libPs1Files).Count -ge 1) -and
+    -not (@($libPs1Files | Where-Object {
+        (Get-Content -LiteralPath $_.FullName -Raw -Encoding utf8) -match 'Add-Type -TypeDefinition' }))) `
+    ("lib 扫={0} 本 / 内联={1} 本" -f @($libPs1Files).Count,
+     @($libPs1Files | Where-Object { (Get-Content -LiteralPath $_.FullName -Raw -Encoding utf8) -match 'Add-Type -TypeDefinition' }).Count)
 Check '探测还能说清"谁占着前台"，并且读窗口自身状态(最小化/可见/矩形)' (
     $gdWinCs.Length -gt 0 -and $gdWinCs -match 'GetWindowThreadProcessId' -and $gdWinCs -match 'IsWindowVisible' -and
     $gdWinCs -match 'WindowRectText')
