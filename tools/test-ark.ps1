@@ -95,7 +95,8 @@ Check '坏关卡代号会被拦住' ($r4 -and $r4 -match 'NOT-A-STAGE')
 Write-Host "`n[t5] 方舟判定链路(会联网拉一次活动接口)"
 # ---- 刀⑯ 收官批 笔(b)(2026-11-06)：Get-ArkEvent 出仓，取数半段改问核(换答方不换问法) ----
 # 组合式＝Get-GdNowMs(现场时钟留壳§9-2) + read-ark-activity(三档与两句 WARN 原话全在核，Round.Data.cs::ArkActivity)
-# + Lines 逐条回放 + Resolve-ArkPlan(转发壳·领空折算臂留壳，k371 mutation 证有牙)。
+# + Lines 逐条回放 + Resolve-ArkPlan(转发壳；刀㉑ 笔(b)-1 起领空折算真身在核 compose-decision-inputs，
+#   本壳只传可选入键 ignoreShopDone——旧句"折算臂留壳"是笔(b)-1 前的活陈述，本批改口，k371 那发突变钉的是搬家前的旧形)。
 function Get-ArkEventViaKernel {
     param($S, [switch]$Offline)
     $now = Get-GdNowMs
@@ -113,89 +114,19 @@ Check 'event-pending 当日仍烧理智(改刷长草，不空放)' (-not ($a.Mod
 $b = Get-ArkEventViaKernel -S $S -Offline
 Check '离线可降级' (@('idle', 'event', 'event-pending') -contains $b.Mode) "source=$($b.Source)"
 
-Write-Host "`n[t7] 活动门(每轮自证)+商店领空 gate(假数据 + 临时 state，跑完还原)"
-# ark-event-ack 那本账不再参与方舟判定(10-12 第 1 刀)，这里就不快照它了；快照 ark-event-probe 是因为探针档会写盘。
-Save-GdTestState -Names @('ark-event-probe', 'ark-shop-done')
-function Set-FakeArkProbe {
-    <# 第 1 刀(2026-10-12)的夹具：往 state\ark-event-probe.json 写一条"活动图自证结论"。
-       正常路径上这文件只由核内 daily_round_chain 的自证段写(verb update-ark-event-probe；lib\ark-module.ps1 的 Run 钩子已随 11-04 刀⑤ 出仓)。自检不许起进程、
-       也不许读真日志(那会要求机器现场状态)，所以这里直接落夹具，跑完由 Restore-GdTestState 还原。 #>
-    param([string]$Date, [string]$Key = 'zztest-event', [string]$Stage = 'AI-8', [bool]$Entered = $true,
-          [string]$Evidence = '假数据：MAA 的关卡名单里选中了 AI-8')
-    Write-GdJson -Path (Get-GdArkEventProbePath) -Object ([ordered]@{
-        Date = $Date; EventKey = $Key; Stage = $Stage; Entered = $Entered; Evidence = $Evidence
-    })
-}
-function Clear-FakeArkProbe { Remove-Item -LiteralPath (Get-GdArkEventProbePath) -Force -ErrorAction SilentlyContinue }
-function New-FakeArkData {
-    param([array]$Events)
-    $grp = New-Object psobject
-    foreach ($e in $Events) {
-        $stages = @($e.Stages | ForEach-Object { New-Object psobject -Property @{ Value = $_; Drop = '10000' } })
-        $act = New-Object psobject -Property @{ Tip = $e.Tip; UtcStartTime = $e.Start; UtcExpireTime = $e.End }
-        $grp | Add-Member -NotePropertyName $e.Id -NotePropertyValue (New-Object psobject -Property @{ Activity = $act; Stages = $stages }) -Force
-    }
-    return New-Object psobject -Property @{ Official = (New-Object psobject -Property @{ sideStoryStage = $grp }) }
-}
-$nowMs = Get-GdNowMs
-$dayAgo = (Get-Date).AddDays(-1).ToString('yyyy/MM/dd HH:mm:ss')
-$dayAfter = (Get-Date).AddDays(6).ToString('yyyy-MM-dd HH:mm:ss')
-$fake = New-FakeArkData @(@{ Id = 'zztest-event'; Tip = '测试活动'; Start = $dayAgo; End = $dayAfter; Stages = @('AI-8', 'CE-5') })
-$two = New-FakeArkData @(@{ Id = 'zztest-event'; Tip = '测试活动A'; Start = $dayAgo; End = $dayAfter; Stages = @('AI-8') },
-    @{ Id = 'zztest-event2'; Tip = '测试活动B'; Start = $dayAgo; End = (Get-Date).AddDays(9).ToString('yyyy-MM-dd HH:mm:ss'); Stages = @('LS-5') })
+Write-Host "`n[t7] 商店领空写面(set-ark-shop-state 的 reset 臂 + state 快照还原)"
+# 刀㉑ 笔(b)-2(2026-11-08)：这一段原先那 19 枚判定面(每轮自证探针档 + 领空折图)整族换家核侧，摘前已过七发 mutation 证牙(三发打在 compose 折图、四发打在 Decisions.Ark 话术与回落臂，VERDICT=PASS MUT=7/7；§11.294 挂的那两发未跑由本批 R2/R3 结清)。逐枚对面坐标：
+#   · tools\panel-cs\Decisions.SelfTest.cs::DecTest —— 既有承接十枚(:187/:194/:202/:211/:217/:225/:231/:240/:253/:263) + 本批新落五枚(:278/:283/:288/:295/:302)；
+#   · tools\panel-cs\Round.SelfTest.cs::RoundTest 第 34) 节 —— 折图与 IgnoreShopDone 那两轴四枚(:2799/:2806/:2813/:2822)，另 :1185 那枚既有折图格同轴在吃。
+# 探针档不再由本段写盘 ⇒ 快照名单只剩 ark-shop-done(reset 格要吃它)；Get-GdArkEventProbePath 自此在 PS 侧零消费者，判死取证另批，本批不动它。
+Save-GdTestState -Names @('ark-shop-done')
+# 诚实登记：PS 侧 -IgnoreShopDone 的行为级正对照随「IgnoreShopDone 可回看原结论」那枚出仓，自此只剩 :31-33 那枚静态锚的形状证词；行为证词的家在 roundtest 第 34) 节。
 try {
-    $idleStage = [string]$S.ark.defaultStage
-    $today = (Get-Date).ToString('yyyy-MM-dd')
-    # 第 1 刀(2026-10-12)：这一段的判据从"有没有敲 -AckArk"换成"state\ark-event-probe.json 那条自证结论"。
-    # 原来那格"入口覆盖参数名后提示语跟着改"整条退场 —— ark 的提示语不再引用任何 Ack 参数名。
-    Clear-FakeArkProbe
-    $p1 = Resolve-ArkPlan -S $S -Data $fake -Source '假数据' -Now $nowMs
-    Check '没有自证结论 → 本轮即以活动最后一关当探针(理智照烧)' ($p1.Mode -eq 'event' -and $p1.Stage -eq 'AI-8' -and $p1.ClearSanity) "mode=$($p1.Mode) stage=$($p1.Stage)"
-    Check '探针档把活动关卡留在 StageHint(收尾采集照它点名)' ($p1.StageHint -eq 'AI-8') $p1.StageHint
-    Check '探针档的提示语讲清"为探针"，且不再出现任何 Ack 参数名' (($p1.Reason -match '为探针') -and ($p1.Reason -notmatch 'Ack')) $p1.Reason
-    Set-FakeArkProbe -Date $today -Entered $true
-    $p2 = Resolve-ArkPlan -S $S -Data $fake -Source '假数据' -Now $nowMs
-    Check '自证进得去 → 理智全刷活动代币关' ($p2.Mode -eq 'event' -and $p2.Stage -eq 'AI-8' -and $p2.ClearSanity) $p2.Reason
-    Check '已自证的提示语点名「今天已自证进得去 AI-8」' ($p2.Reason -match '今天已自证进得去 AI-8') $p2.Reason
-    Set-FakeArkProbe -Date $today -Entered $false -Evidence '假数据：MAA 的关卡名单里 3 关没有 AI-8'
-    $p3 = Resolve-ArkPlan -S $S -Data $fake -Source '假数据' -Now $nowMs
-    Check '自证进不去 → event-pending 且当日改刷长草计划' ($p3.Mode -eq 'event-pending' -and $p3.Stage -eq $idleStage -and $p3.ClearSanity) "stage=$($p3.Stage)"
-    Check '进不去的提示语说明被剪/不空试/下一轮自动切回' (($p3.Reason -match '被 MAA 剪掉') -and ($p3.Reason -match '下一轮自动切回') -and ($p3.Reason -notmatch 'AckArk')) $p3.Reason
-    Check '进不去时活动关卡仍在 StageHint(下一轮据此重探)' ($p3.StageHint -eq 'AI-8') $p3.StageHint
-    Set-FakeArkProbe -Date (Get-Date).AddDays(-1).ToString('yyyy-MM-dd') -Entered $false
-    $p4 = Resolve-ArkPlan -S $S -Data $fake -Source '假数据' -Now $nowMs
-    Check '隔天的旧自证结论不挡门(重新拿最后一关当探针)' ($p4.Mode -eq 'event' -and $p4.Stage -eq 'AI-8') $p4.Reason
-    Set-FakeArkProbe -Date $today -Key 'zztest-event9' -Entered $false
-    $p5 = Resolve-ArkPlan -S $S -Data $fake -Source '假数据' -Now $nowMs
-    Check '活动代号不符的自证结论不挡门(换活动就得重新自证)' ($p5.Mode -eq 'event' -and $p5.Stage -eq 'AI-8') $p5.Reason
-    Clear-FakeArkProbe
     Invoke-GdCli -Verb 'set-ark-shop-state' -Body ([pscustomobject]@{ eventKey = 'zztest-event'; eventTip = '测试'; done = $true }) | Out-Null
-    $p6 = Resolve-ArkPlan -S $S -Data $fake -Source '假数据' -Now $nowMs
-    Check '商店领空 → 回落长草计划' ($p6.Mode -eq 'idle' -and $p6.Stage -eq $idleStage -and $p6.ClearSanity -and $p6.ShopDone) $p6.Reason
-    $p7 = Resolve-ArkPlan -S $S -Data $fake -Source '假数据' -Now $nowMs -IgnoreShopDone
-    Check 'IgnoreShopDone 可回看原结论' ($p7.Mode -eq 'event' -and $p7.EventKey -eq 'zztest-event')
-    Check '领空后仍能报出活动 id(供撤销)' ($p6.EventKey -eq 'zztest-event') $p6.EventKey
-    Check '领空回落的提示语不再带 verb 名(10-30 B-3②-d 刀① 摘掉 body 两枚键，反向钉：出现即红)' (($p6.Reason -notmatch 'daily-clear') -and ($p6.Reason -match '剩余理智改刷长草计划')) $p6.Reason
-    $S.ark | Add-Member -NotePropertyName shopDoneStopsEvent -NotePropertyValue $false -Force
-    $p8 = Resolve-ArkPlan -S $S -Data $fake -Source '假数据' -Now $nowMs
-    Check '开关置 false 后不再拦截' ($p8.Mode -eq 'event')
-    $S.ark | Add-Member -NotePropertyName shopDoneStopsEvent -NotePropertyValue $true -Force
-    $q1 = Resolve-ArkPlan -S $S -Data $two -Source '假数据' -Now $nowMs
-    Check 'A 已领空 → 转到还没自证的 B 并以 B 的最后一关当探针' ($q1.Mode -eq 'event' -and $q1.EventKey -eq 'zztest-event2' -and $q1.Reason -match '领空') $q1.Reason
-    Set-FakeArkProbe -Date $today -Key 'zztest-event2' -Stage 'LS-5' -Entered $false
-    $q2 = Resolve-ArkPlan -S $S -Data $two -Source '假数据' -Now $nowMs
-    Check 'B 自证进不去 → 当日改刷长草，同时仍报出 A 已领空' ($q2.Mode -eq 'event-pending' -and $q2.EventKey -eq 'zztest-event2' -and $q2.Stage -eq $idleStage -and $q2.Reason -match '领空') $q2.Reason
-    Set-FakeArkProbe -Date $today -Key 'zztest-event2' -Stage 'LS-5' -Entered $true
-    $q3 = Resolve-ArkPlan -S $S -Data $two -Source '假数据' -Now $nowMs
-    Check 'B 自证进得去 → 自动改刷 B' ($q3.Mode -eq 'event' -and $q3.EventKey -eq 'zztest-event2' -and $q3.Reason -match '领空') $q3.Reason
-    Clear-FakeArkProbe
-    Invoke-GdCli -Verb 'set-ark-shop-state' -Body ([pscustomobject]@{ eventKey = 'zztest-event2'; eventTip = '测试A'; done = $true }) | Out-Null
-    $q4 = Resolve-ArkPlan -S $S -Data $two -Source '假数据' -Now $nowMs
-    Check '都领空 → 长草计划' ($q4.Mode -eq 'idle' -and $q4.ShopDone) $q4.Reason
-$rvReset = Invoke-GdCli -Verb 'set-ark-shop-state' -Body ([pscustomobject]@{ eventKey = 'zztest-event'; done = $false })
-$dsAfter = Invoke-GdCli -Verb 'read-decision-state' -Body ([pscustomobject]@{ game = 'ark'; want = @('shopDone') })
-Check '撤销标记生效(Action=reset 且表里已无此键——ContainsKey 那把不分大小写的尺在核侧同一把)' (
-    $rvReset.Action -eq 'reset' -and -not $dsAfter.ShopDone.PSObject.Properties['zztest-event']) "action=$($rvReset.Action)"
+    $rvReset = Invoke-GdCli -Verb 'set-ark-shop-state' -Body ([pscustomobject]@{ eventKey = 'zztest-event'; done = $false })
+    $dsAfter = Invoke-GdCli -Verb 'read-decision-state' -Body ([pscustomobject]@{ game = 'ark'; want = @('shopDone') })
+    Check '撤销标记生效(Action=reset 且表里已无此键——ContainsKey 那把不分大小写的尺在核侧同一把)' (
+        $rvReset.Action -eq 'reset' -and -not $dsAfter.ShopDone.PSObject.Properties['zztest-event']) "action=$($rvReset.Action)"
 } finally {
     Restore-GdTestState
 }
