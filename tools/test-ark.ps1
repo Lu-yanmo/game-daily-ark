@@ -469,12 +469,23 @@ Check '端游截图与点击那半的规矩住在核侧(带回 Sig、最小化�
     $liveCsT13.Length -gt 0 -and $liveCsT13.Contains('"Sig"') -and $liveCsT13.Contains('IsIconic') -and
     $liveCsT13.Contains('SW_RESTORE') -and $liveCsT13.Contains('TryForeground') -and
     $liveCsT13.Contains('RealClick') -and $liveCsT13.Contains('ClickOnce')) ("Live.cs=" + $liveCsT13.Length + " 字符")
-$cliCsT13 = ''
-try { $cliCsT13 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Cli.cs') -Raw -Encoding utf8 } catch { }
+# 刀⑰ 笔(c)-2 第 1 批 B1 换家(§11.276)：老形是 PS 侧 Get-Content -Raw 读整本 Cli.cs，再逐枚手拼
+# 'verb == "<名>"' 拿去 -notmatch —— 那两步(读文件＋正则判定)的家自此住核内 scan-source-patterns，
+# PS 侧只组参与按 Passed 记名。两处语义差逐格登记：
+#   ① PS -match 原生大小写不敏感、核侧敏感(RegexOptions.CultureInvariant)。分派链那行是 C# 字面量，
+#     老形会把「Verb == "x"」这种对不齐大小写的写法也算在位；改敏感后是收紧不是放松，现树逐枚现读全在位。
+#   ② 老形「Cli.cs 取不回来 ⇒ 空串 ⇒ 十三枚全红」是静默恒红；核侧输入闸对缺文件直接 throw(拒跑不是判红)，
+#     交不出数的两档从此分家——正是上面③那条在册规矩要的形。
+$t13CliCs = Join-Path $PSScriptRoot 'panel-cs\Cli.cs'
 $t13Verbs = @('vision-ask-model', 'parse-vision-verdict', 'build-vision-prompt', 'resolve-vision-endpoint',
     'vision-click-point', 'shot-changed', 'ark-window-shot', 'ark-window-click', 'ark-desktop-state',
     'compose-ark-desktop-state', 'resolve-rescue-context', 'mumu-screen-shot', 'mumu-screen-click')
-$t13Miss = @($t13Verbs | Where-Object { $cliCsT13 -notmatch ('verb == "' + [regex]::Escape($_) + '"') })
+$t13Miss = @()
+foreach ($t13v in $t13Verbs) {
+    $t13Scan = Invoke-GdCli -Verb 'scan-source-patterns' -Body ([pscustomobject]@{
+        files = @($t13CliCs); pattern = 'verb == "' + [regex]::Escape($t13v) + '"'; expect = 'nonzero' })
+    if (-not [bool]$t13Scan.Passed) { $t13Miss += $t13v }
+}
 Check '兜底那一路的十三枚出口全在核内分派链上(三件出仓后这是唯一通路，缺哪枚点名哪枚)' ($t13Miss.Count -eq 0) ($t13Miss -join ',')
 $visionStT13 = ''
 try { $visionStT13 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Vision.SelfTest.cs') -Raw -Encoding utf8 } catch { }
