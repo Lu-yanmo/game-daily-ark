@@ -332,30 +332,18 @@ Check '第 30 节的名册与形状是两份独立事实源(不从金样反推�
 # 这里照第十九刀留三枚无条件静态锚：一枚"退役不回潮"(有人把六枚定义搬回来就当场红)，两枚"搬过去的尺还在"。
 # 2026-11-06 刀⑮ 笔(a)：这枚读改成不依赖件在场——件在按老形咬件文本(负锚原样有牙)；件不在改成咬
 # "六枚没以命令形态在别处复活"(Get-Command 现读)。两臂都交得出数，缺读数不许长成活锚。
-$visionRescuePsPath = Join-Path $PSScriptRoot '..\lib\vision-rescue.ps1'
-$visionRescuePsOnDisk = Test-Path -LiteralPath $visionRescuePsPath
-$visionRescuePs = if ($visionRescuePsOnDisk) { Get-Content -LiteralPath $visionRescuePsPath -Raw -Encoding utf8 } else { '' }
-if ($visionRescuePsOnDisk) {
-    $vrSixTooth = (-not $visionRescuePs.Contains('function Invoke-GdVisionRescue ')) -and
-        (-not $visionRescuePs.Contains('function New-GdRescueSkip ')) -and
-        (-not $visionRescuePs.Contains('function Clear-GdRescueShotDir ')) -and
-        (-not $visionRescuePs.Contains('function Get-GdRescueLedgerPath ')) -and
-        (-not $visionRescuePs.Contains('function Test-GdShotChanged ')) -and
-        (-not $visionRescuePs.Contains('function Add-GdRescueRecord '))
-    $vrSixWhy = ''
-} else {
-    $vrRevived = @()
-    foreach ($vrFnName in @('Invoke-GdVisionRescue', 'New-GdRescueSkip', 'Clear-GdRescueShotDir', 'Get-GdRescueLedgerPath', 'Test-GdShotChanged', 'Add-GdRescueRecord')) {
-        if (Get-Command $vrFnName -ErrorAction SilentlyContinue) { $vrRevived += $vrFnName }
-    }
-    $vrSixTooth = (@($vrRevived).Count -eq 0)
-    # ⚠ 11-06 刀⑮ 笔(a) 验证自伤更正：原来这里挂一枚 $script:_vrSixWhy 且只在复活>0 时才赋值，
-    #   件不在又没复活时 detail 的 elseif 读一枚从没设过的脚本变量——strict mode 当场抛"无法检索变量"，
-    #   等于把「双绿臂」里最该安静的那条走成炸门。改本地变量＋两臂都先初始化，缺读数不许长成活锚也不许长成一枚雷。
-    $vrSixWhy = $(if (@($vrRevived).Count -gt 0) { '件已不在，但这几枚以命令形态复活：' + ($vrRevived -join ',') } else { '' })
+# 2026-11-08 刀㉑ 笔(a)：两臂里"件在咬件文本"那一臂恒不执行(lib\vision-rescue.ps1 已整件退役)，死臂随批摘；
+#   $visionRescuePsPath／$visionRescuePsOnDisk／$visionRescuePs 三行只喂那条臂，同批摘(件⇔命令那格另有 $rescueOnDisk 一锚)。
+$vrRevived = @()
+foreach ($vrFnName in @('Invoke-GdVisionRescue', 'New-GdRescueSkip', 'Clear-GdRescueShotDir', 'Get-GdRescueLedgerPath', 'Test-GdShotChanged', 'Add-GdRescueRecord')) {
+    if (Get-Command $vrFnName -ErrorAction SilentlyContinue) { $vrRevived += $vrFnName }
 }
-Check '兜底编排六枚的定义不在现树 PS 侧(双删是回归抓器：编排只住核内 vision_rescue 一处；件在咬文本、件不在咬命令复活)' $vrSixTooth $(
-    if ($visionRescuePsOnDisk) { "件在场 $($visionRescuePs.Length) 字符" } elseif ($vrSixWhy) { $vrSixWhy } else { '件不在，六枚命令名册现读为空' })
+$vrSixTooth = (@($vrRevived).Count -eq 0)
+# ⚠ 11-06 刀⑮ 笔(a) 验证自伤更正(这条纪律留着，不随臂走)：原来这里挂一枚 $script:_vrSixWhy 且只在复活>0 时才赋值，
+#   件不在又没复活时 detail 读一枚从没设过的脚本变量——strict mode 当场抛"无法检索变量"，等于把最该安静的那条走成炸门。
+$vrSixWhy = $(if (@($vrRevived).Count -gt 0) { '件已不在，但这几枚以命令形态复活：' + ($vrRevived -join ',') } else { '' })
+Check '兜底编排六枚的定义不在现树 PS 侧(双删是回归抓器：编排只住核内 vision_rescue 一处；咬命令复活)' $vrSixTooth $(
+    if ($vrSixWhy) { $vrSixWhy } else { '六枚命令名册现读为空' })
 Check '刀③ 补尺两枚住在核内第 19 节(链不记帐 / context 原样递到问价层)' (
     ($arkCoreRs.Contains('第二十刀刀③ 补尺①')) -and ($arkCoreRs.Contains('第二十刀刀③ 补尺②')))
 Check '画面变没变的四形与 detail 压平两形住在 C# 自检里(Vision.SelfTest.cs 接守 t13/t16 摘下的那两族)' (
@@ -565,22 +553,9 @@ Check '桌面名走 OpenInputDesktop + UOI_NAME，用完关掉句柄(名单只�
 Check '探测还能说清"谁占着前台"，并且读窗口自身状态(最小化/可见/矩形)' (
     $gdWinCs.Length -gt 0 -and $gdWinCs -match 'GetWindowThreadProcessId' -and $gdWinCs -match 'IsWindowVisible' -and
     $gdWinCs -match 'WindowRectText')
-if ($arkVisionFileOnDisk) {
-    $st = Get-GdArkDesktopState -Hwnd $null
-    Check '探测会报出输入桌面(未锁屏=Default)' ($st.Detail -match '输入桌面=') $st.Detail
-    Check '桌面名读不到时 Locked 给"不知道"而不是"锁屏了"' (
-        ($null -eq $st.Locked) -or ($st.Locked -eq ($st.Desktop -ne 'Default'))) "Desktop=[$($st.Desktop)] Locked=$($st.Locked)"
-    Check '没给窗口句柄时明说"端游窗口没找到"' ($st.Detail -match '端游窗口没找到')
-    # 光标位置在"会话不在正常输入桌面"(锁屏 / Screen-saver 桌面)时本来就读不到 —— 那种情况下探测会明说
-    # "会话不在正常桌面"，这算它说对了，不该记红。这套自检标榜"只读、不启动任何程序"，
-    # 所以它也不能要求"跑的时候屏幕是亮着没锁的"(2026-09-25 验收链就在锁屏的机器上红过这一条)。
-    Check '探测顺手记下光标位置(判"这一轮鼠标进不进得来"的现场量)；不在正常桌面时改成说清为什么读不到' (
-        $st.Detail -match '光标在 ' -or ($st.Desktop -ne 'Default' -and $st.Detail -match '不在正常桌面')) $st.Detail
-    $fnGrab = (Get-Command Invoke-GdArkForegroundGrab).Definition
-    Check '抢前台只动窗口状态，绝不往客户区点一下，并把现场带回 Detail' (
-        $fnGrab -match 'TryForeground' -and $fnGrab -notmatch 'RealClick' -and $fnGrab -notmatch 'ClickOnce' -and
-        $fnGrab -match 'st\.Detail')
-} else {
+# 2026-11-08 刀㉑ 笔(a)：上面那行"件在才跑得动的真调格"臂恒不执行(lib\vision-ark.ps1 已整件退役、Get-GdArkDesktopState
+#   也不在现树——同事实那格在上面钉着)，死臂随批摘五枚格；下面三枚(没复活＋桌面态四格改由 --visiontest 金样接住＋
+#   抢前台只动窗口状态)自此是唯一形。摘的五枚逐枚点名见提交正文。
     Check 'PS 端游后端那三枚没在现树复活(找窗口／拍窗口／点窗口)' (
         -not (Get-Command Get-GdArkWindow -ErrorAction SilentlyContinue) -and
         -not (Get-Command Save-GdWindowShot -ErrorAction SilentlyContinue) -and
@@ -600,7 +575,6 @@ if ($arkVisionFileOnDisk) {
     Check '抢前台那一条在核侧也只动窗口状态(--livetest 钉"全量注入时一个字都不碰窗口调用"，TryForeground 的真身在 Live.cs)' (
         $liveStT14.Length -gt 0 -and $liveStT14.Contains('全量注入时一个字都不碰窗口调用') -and
         $liveCsT13.Contains('TryForeground')) ('Live.cs=' + $liveCsT13.Length + " 字符 / Live.SelfTest.cs=" + $liveStT14.Length + ' 字符')
-}
 
 Write-Host "`n[t15] MAA 自己把队列跑空了，别再傻等 22 分钟(2026-09-25 07:53 那轮现场暴露的)"
 # 那一轮 asst.log 里 5 次点击全部落地(START 一点就过、还关掉了两张弹窗)，随后
