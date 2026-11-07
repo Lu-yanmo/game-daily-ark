@@ -633,8 +633,15 @@ if (Test-Path -LiteralPath $askPath) {
     $askCode = (($askSrc -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n")
     Check '只问不点：代码里没有 $t.Click / Send-GdArkClick / adb input tap 任何一种点击出口' (
         $askCode -notmatch '\$t\.Click' -and $askCode -notmatch 'Send-GdArkClick' -and $askCode -notmatch 'input tap')
-    Check '复用的是同一套靶子和同一个问价函数(不另写一份提示词，免得两边规则漂移)' (
-        $askSrc -match 'Get-GdVisionTarget' -and $askSrc -match 'Invoke-GdVisionRaw')
+    # 刀⑳ 笔(a)-2 翻形：老形拿未剥注释的 $askSrc 判两枚 PS 函数名，而那两枚已随刀⑮ 笔(d) 整件出仓，
+    # 名字只剩 vision-ask 那两处史注替它说话＝覆盖已丢而格仍绿（判死代码时注释不算引用，反过来拿注释当正锚同样是伤）。
+    # 新形只认剥注释的代码面：正锚改指真在场的两枚 verb 与话术递到手上的那两格，另加三枚负锚＝
+    # 外壳不许复活那两枚 PS 函数，也不许把 scene 写成本地字面量（那才是「另写一份提示词」的真形）。
+    Check '复用同一套靶子与同一个问价出口(话术由核供给一次，不另写一份提示词，免得两边规则漂移)' (
+        $askCode -match 'resolve-rescue-context' -and $askCode -match 'vision-ask-model' -and
+        $askCode -match '\[string\]\$ctx\.Scene' -and $askCode -match '\[string\]\$ctx\.UserText' -and
+        $askCode -notmatch 'Get-GdVisionTarget' -and $askCode -notmatch 'Invoke-GdVisionRaw' -and
+        $askCode -notmatch "scene\s*=\s*'")
     Check '跑完当面告诉人"本文件没有点任何东西"' ($askSrc -match '没有点任何东西')
     Check '问哪一路由清单的 VisionKind 决定，这份文件里没有 ark/mumu 硬对照表' (
         $askSrc -match 'VisionKind' -and $askSrc -notmatch "=\s*'mumu'")
