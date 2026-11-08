@@ -82,9 +82,7 @@ $b = Get-ArkEventViaKernel -S $S -Offline
 Check '离线可降级' (@('idle', 'event', 'event-pending') -contains $b.Mode) "source=$($b.Source)"
 
 Write-Host "`n[t7] 商店领空写面(set-ark-shop-state 的 reset 臂 + state 快照还原)"
-# 刀㉑ 笔(b)-2(11-08)：原 19 枚判定面整族换家核侧，摘前七发 mutation 证牙(三发折图／四发 Decisions.Ark 话术与回落臂，MUT=7/7；§11.294 挂的两发由本批 R2/R3 结清)。对面坐标：
-#   · Decisions.SelfTest.cs::DecTest 既有十枚(:187/:194/:202/:211/:217/:225/:231/:240/:253/:263)＋本批五枚(:278/:283/:288/:295/:302)；
-#   · Round.SelfTest.cs::RoundTest 第 34) 节四枚(:2799/:2806/:2813/:2822)，另 :1185 既有折图格同轴；探针档不再写盘 ⇒ 快照只剩 ark-shop-done。
+# 刀㉑ 笔(b)-2(11-08)：原 19 枚判定面整族换家核侧，摘前七发 mutation 证牙(三发折图／四发 Decisions.Ark 话术与回落臂，MUT=7/7；§11.294 挂的两发由本批 R2/R3 结清)。对面坐标……（细节见该帧）
 Save-GdTestState -Names @('ark-shop-done')
 # 诚实登记：PS 侧 -IgnoreShopDone 的行为级正对照随「可回看原结论」那枚出仓，只剩 :31-33 静态锚；行为证词的家在 roundtest 第 34) 节。
 try {
@@ -129,11 +127,7 @@ Show-GdCommonTailChecks
 $orchArkCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Orchestration.cs') -Raw -Encoding utf8
 $arkRetryWin = [regex]::Match($orchArkCs, '(?s)if \(EqS\(game, "ark"\)\)(?<win>.*?)else if \(EqS\(game, "r1999"\)\)').Groups['win'].Value
 Check '方舟重试也会跳过 unknown-format' (($arkRetryWin -match '"ok"') -and ($arkRetryWin -match '"not-started"') -and ($arkRetryWin -match '"unknown-format"') -and ($arkRetryWin -match '收尾后重试一次'))
-# 11-04 笔(c/d) 作废登记①：原来这里 dot 一份 lib\ark-daily.ps1(编排岛)。那件整件出仓，这条 dot 随它一起没了
-#(它点的那件在仓里不再存在，留着当场抛红)。09-24 06:00 重试先 Stop-MaaAndGame 的坑与 09-26 两条桌面分支，判据的家已在
-# --selftest 第 29 节(retry-stalled／desk-empty 两档)；当年补尺先于删件、删的是臂不是判据。10-27 第十九刀：等值门(1,014 行／39 格)整件退役，
-# 行为判据逐格搬进第 29 节，随门死的是 H0 脚手架 12 枚与等值面 21 枚(账见 docs §11.161/§11.162)。
-# 这里自此只留「搬过去的尺还在不在」一类格子：被人删掉时本套件当场红，而不是静默少一条判据。今天读的两份是 lib\rust-round.ps1 与 main.rs。
+# 11-04 笔(c/d) 作废登记①：原来这里 dot 一份 lib\ark-daily.ps1(编排岛)。那件整件出仓，这条 dot 随它一起没了…（细节见该帧）
 $arkRoundPs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\rust-round.ps1') -Raw -Encoding utf8
 $arkRoundCode = ($arkRoundPs -replace '(?s)<\#.*?\#>', ' ') -replace '(?m)^\s*#.*$', ' '
 $arkCoreRs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'rustcore\src\main.rs') -Raw -Encoding utf8
@@ -141,12 +135,7 @@ $arkVisionCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Visio
 Check 'arkdrive 门两档的行为判据已在核内 --selftest 第 29 节(门退役后尺住在代码里)' (
     ($arkCoreRs.Contains('第 29 节：arkdrive 门退役四组真空档补尺')) -and ($arkCoreRs.Contains('C-retry-relaunch')) -and
     ($arkCoreRs.Contains('C-desk-empty-vs-early')))
-# 11-04 笔(c/d) 作废登记②：原三格(ask 白名单十一枚／run·mark·obsrec·admin 四 case／信封 role 字面 R3-drive-ark-daily)量的是编排岛驱动档 executor 源码形状；
-# 岛出仓后三格搬不了靶(驱动档与轮档是两本名册，从不通约)，逐枚登记不再量什么；run/mark 真身在 --selftest 第 29 节，家一字未动。
-# ctx 的写侧半边：装配整块搬进核对面 panel-cs\Round.Host.cs(MaaRun／M9aRun 两枚载荷)，lib\rust-round.ps1 三枚真身当场没有对面；
-# 换的只是语法，判据三形照旧——整行钉(行尾就到，多一个字符即红)、左右同名、按函数体切(全文钉会让 m9aRun 替 maaRun 顶包)。
-# ⚠ m1 教训留册不随臂走：.Contains 前缀锚会让右值改后缀照样命中(207/0 假绿)；收窄后同一发复拍 206/1 当场点名。
-# 旧 PS 侧那格不静默消失：换成下面「退役不回潮」负锚，防有人把装配定义搬回 PS 侧造出双账。
+# 11-04 笔(c/d) 作废登记②：原三格(ask 白名单十一枚／run·mark·obsrec·admin 四 case／信封 role 字面 R3-drive-ark-daily)量的是编排岛驱动档 executor 源码形状；…（细节见该帧）
 $arkHostCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Round.Host.cs') -Raw -Encoding utf8
 $arkHostCode = ($arkHostCs -replace '(?s)/\*.*?\*/', ' ') -replace '(?m)^\s*//.*$', ' '
 $arkMaaRunBody = [regex]::Match($arkHostCs, '(?s)static Dictionary<string, object> MaaRun\(.*?\r?\n        \}').Value
@@ -157,12 +146,10 @@ foreach ($arkCtxKey in @('arkStartTimeoutMinutes', 'arkTimeoutMinutes', 'stallTi
 Check 'ctx 的 maaRun 载荷逐枚点名取键且左右同名(按函数体整行钉；不整块序列化 runtime；11-06 笔(c) 搬靶到直身件 Round.Host.cs)' (
     ($arkCtxBad.Count -eq 0) -and ($arkMaaRunBody -match '(?m)^\s*"benignMaaErrors",\s*benign\)\);\s*$') -and
     ($arkMaaRunBody -match '(?m)^\s*foreach \(object bm in Gd\.List\(Gd\.Get\(runtime, "benignMaaErrors"\)\)\)\s*benign\.Add')) ($arkCtxBad -join ',')
-# 负锚那副眼镜跟着搬家：直身件里 visionApiKey 的命中现拍全在注释里(讲"整块 runtime 里住着 key"那处)，
-# 所以代码面负扫＋原文在场自证两半都要——判据不许动的是「不许出现的是代码面」这句。
+# 负锚那副眼镜跟着搬家：直身件里 visionApiKey 的命中现拍全在注释里(讲"整块 runtime 里住着 key"那处)……（细节见该帧）
 Check '直身件的代码面一个字都不碰视觉 API key(visionApiKey 不许进 ctx 那本留盘的账；负锚按剥注释后抓)' (
     (-not $arkHostCode.Contains('visionApiKey')) -and ($arkHostCs.Contains('visionApiKey')))
-# 「退役不回潮」那枚(形状照下面编排岛名册那一格；名册由 foreach 供数，注释不写枚数)：PS 侧自此只递旋钮、
-# 不再自己装配 ctx——装配的唯一出口是 verb build-round-ctx，且这侧调用点只此一处(两处＝双账)。
+# 「退役不回潮」那枚(形状照下面编排岛名册那一格；名册由 foreach 供数，注释不写枚数)：PS 侧自此只递旋钮……（细节见该帧）
 $arkCtxDefBad = @()
 foreach ($arkCtxFn in @('Get-GdRoundCtx', 'Get-GdRoundMaaRunPayload', 'Get-GdRoundM9aRunPayload')) {
     if ($arkRoundCode.Contains('function ' + $arkCtxFn + ' {')) { $arkCtxDefBad += $arkCtxFn }
@@ -170,10 +157,7 @@ foreach ($arkCtxFn in @('Get-GdRoundCtx', 'Get-GdRoundMaaRunPayload', 'Get-GdRou
 $arkCtxVerbHits = [regex]::Matches($arkRoundCode, "Invoke-GdCli -Verb 'build-round-ctx'").Count
 Check '轮档件的 PS 侧不再自己装配 ctx(三枚定义不许回潮；装配只走 build-round-ctx 那一枚出口且调用点唯一)' (
     ($arkCtxDefBad.Count -eq 0) -and ($arkCtxVerbHits -eq 1)) (((($arkCtxDefBad -join ',') + '|verb-hits=' + $arkCtxVerbHits)))
-# 10-27 甲档第四刀刀②：Invoke-MaaRun 真身(lib\maa.ps1 旧 :220-620)整函数出仓——循环骨架进核(maa_run + RealHost，main.rs)，
-# 判据/话术唯一事实源在 RunLoops.cs／Orchestration.cs。原咬壳内字面的那批格随壳退役；对面金样＝--looptest 与 --selftest 第 30 节(27 档 1218 步)。
-# 10-27 第二十刀刀②：probe-arkrun-rust-golden(1,671 行／13 格)整件退役，真空档 H1/H2/H3/H5/H6 共 155 枚随刀① 搬进第 30 节(账见 §11.163/§11.164)。
-# 这里只留「搬过去的尺还在不在」类无条件静态锚。
+# 10-27 甲档第四刀刀②：Invoke-MaaRun 真身(lib\maa.ps1 旧 :220-620)整函数出仓——循环骨架进核(maa_run + RealHost，main.rs)……（细节见该帧）
 Check 'arkrun 门 27 档等值面已在核内 --selftest 第 30 节(门退役后尺住在代码里)' (
     ($arkCoreRs.Contains('30. arkrun 27 档金样回放')) -and ($arkCoreRs.Contains('K20_GOLDEN')) -and
     ($arkCoreRs.Contains('K20_EXTRA')))
@@ -181,8 +165,6 @@ Check '第 30 节的名册与形状是两份独立事实源(不从金样反推�
     ($arkCoreRs.Contains('const K20_NAMES: [&str; 27] = [')) -and ($arkCoreRs.Contains('const K20_VERBS: [&str; 14] = [')) -and
     ($arkCoreRs.Contains('K20_SHAPE')))
 # 10-28 第二十刀刀③：lib\vision-rescue.ps1 兜底编排六枚(169 函数行)整件出仓，t13/t16 那 20 枚随壳侧退役(搬家账见 §11.165)。
-# 照第十九刀留三枚无条件静态锚：一枚「退役不回潮」＋两枚「搬过去的尺还在」。
-# 11-06 刀⑮ 笔(a) 起这枚读不依赖件在场：件在按老形咬文本，件不在咬「六枚没以命令形态复活」(Get-Command 现读)；11-08 刀㉑ 笔(a) 摘恒不执行的死臂与三行只喂它的取数。
 $vrRevived = @()
 foreach ($vrFnName in @('Invoke-GdVisionRescue', 'New-GdRescueSkip', 'Clear-GdRescueShotDir', 'Get-GdRescueLedgerPath', 'Test-GdShotChanged', 'Add-GdRescueRecord')) {
     if (Get-Command $vrFnName -ErrorAction SilentlyContinue) { $vrRevived += $vrFnName }
@@ -198,17 +180,9 @@ Check '画面变没变的四形与 detail 压平两形住在 C# 自检里(Vision
     ($arkVisionCs.Contains('只有一格抖 1 档')) -and ($arkVisionCs.Contains('两次画面格数不同')) -and
     ($arkVisionCs.Contains('detail 换行压平')))
 
-# ── 转接刀·方舟拉起族(11-03)补尺格：三处消费面各自现问两枚核内出口 ──────────────
-# 钉「现问的形状」而不是钉结果：这一族的语义闸是取回执里哪一枚键——start-ark-client 的 Done 恒真、Started 才是「真进了游戏」；
-# 核内自检(Round.SelfTest 第 21/25 节)钉的是核怎么答，钉不到 PS 这侧怎么取 ⇒ 只能由本套件钉源码形状。
-# Body 那半是安全边界：两枚都传空块，核自己现场读 config\settings.json；整块序列化 $S 会把本机专属值落进临时 JSON。
+# ── 转接刀·方舟拉起族(11-03)补尺格：三处消费面各自现问两枚核内出口 ──────────────…（细节见该帧）
 $arkModulePs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\lib\ark-module.ps1') -Raw -Encoding utf8
-# 11-04 笔(c/d) 作废登记③：上面那三格拉链(拉起答臂只认 Started／链体答臂问 stop-maa-and-game／Lines 回放)钉的是编排岛 executor 怎么取回执；
-# PS 侧不再有人取 ⇒ 三格当场没有桌子，语义在核内与 C# 各有真身：
-#   · 取 Started 不取 Done：Chain.cs 的 StartArkClient ＋ Round.SelfTest 第 25 节；
-#   · 问 stop-maa-and-game：Chain.cs 的 StopMaaAndGame ＋ 第 21 节；核内收尾(main.rs 的 stop:ark)现问它；
-#   · Lines 一句不丢：Chain.cs 回执的 Lines 名册 ＋ 核内 DirectOut::with_lines。
-# ⚠ 三格不搬靶给轮档件(它的代码面没有这两枚 verb，改成「两处都数」是给不存在的桌子补椅子)。同批留「退役不回潮」负锚：岛上真身若被搬回 PS 侧(最可能落轮档件与清单件)，这一格当场红。
+# 11-04 笔(c/d) 作废登记③：上面那三格拉链(拉起答臂只认 Started／链体答臂问 stop-maa-and-game／Lines 回放)钉的是编排岛 executor 怎么取回执；…（细节见该帧）
 $arkIslandBad = @()
 foreach ($arkIslandFn in @('Set-GdArkShopState', 'Resolve-GdArkDecision', 'Show-GdArkPreview', 'Start-GdArkDaily', 'Get-GdArkDriveExe', 'Invoke-GdArkDailyRust')) {
     if ($arkRoundPs.Contains('function ' + $arkIslandFn + ' ') -or $arkModulePs.Contains('function ' + $arkIslandFn + ' ')) { $arkIslandBad += $arkIslandFn }
@@ -233,12 +207,6 @@ Check '刀⑨ 四枚死真身的定义不在现树 PS 侧(common 与 maa 两件�
 
 Write-Host "`n[t12] asst.log 停滞线索(gui.log 静默时唯一看得见的东西)"
 # 11-08 刀㉓ 笔(b) 第三子批 第十刀：四枚 verb 直答行为格(点名卡住的子任务／认不出不编造／空文本不炸／刚开始不算反复点击)与两份输入块整批出仓。
-#   对面＝Processes.SelfTest.cs 的 AsstGroup(asst/hint-excerpt・-hint-none・-hint-empty・-hint-justOne)，同一份 09-24 18:23 真日志原文；
-#   判据从 -match 收紧成整句等值。留格＝settings 缺 maaAsstLog 的默认路径与本机 asst.log 现况读数(量的不是 verb 答法)。
-# 老配置没这个键也要能跑：路径有默认值，且判定不依赖它
-# 复制用 Convert-GdMapToHashtable，不要写成 "$S" + 块名 + ".PSObject.Properties" 那种属性展开：
-# 导出闸门 Test-GdTemplateCoversCode 是按 $S.<块>.<键> 的字面量扫代码的(连注释一起扫)，
-# 展开写法会被它当成"这一路要用 PSObject 这个设置键"，于是模板覆盖率那条检查白红一次。
 $pathsNoAsst = Convert-GdMapToHashtable $S.paths
 $pathsNoAsst.Remove('maaAsstLog') | Out-Null
 $pathsCopy = [pscustomobject]$pathsNoAsst
@@ -251,12 +219,7 @@ if (Test-Path -LiteralPath $liveAsst) {
 }
 
 Write-Host "`n[t13] 视觉兜底(全程不联网、不截图、不点任何东西)"
-# 11-06 刀⑮ 笔(d)：本节原二十二枚行为格真调 vision-rescue／vision-ark 腹内六枚；三件本体出仓后，这二十二枚由覆盖面尺
-# raw\k17a-cut15d-vision-coverage.txt 逐格对平到 C# 那侧(HIT 16／WEAK 15 逐格另查／MISS 14 里 vision 六枚另查——MISS 是名字最长公共子串不够长，不是没有对面)。
-# 留格换无条件形，三条在册规矩：
-#   ① 对面不是「钩子格还在」而是同一条判据在 --visiontest／--livetest 里被重跑一遍 ⇒ 按刀③ 直接删格，不换取法重写；
-#   ② 删格不等于删判据：件在不在都跑的四枚是承接，只在件不在时跑的负锚挡半迁移；
-#   ③ .cs 文本取不回来一律当场红并交出字节数(交空串＝尺没接电)，静默跳过正是要防的「绿着但没人检查」。
+# 11-06 刀⑮ 笔(d)：本节原二十二枚行为格真调 vision-rescue／vision-ark 腹内六枚；三件本体出仓后，这二十二枚由覆盖面尺…（细节见该帧）
 $rescueOnDisk = Test-Path -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-rescue.ps1')
 Check '兜底内核件与 Get-GdVisionVerdictFromText 命令同一个事实(同在同不在，半迁移红)' (
     $rescueOnDisk -eq [bool](Get-Command Get-GdVisionVerdictFromText -ErrorAction SilentlyContinue)) "件=$rescueOnDisk"
@@ -270,13 +233,7 @@ Check '端游截图与点击那半的规矩住在核侧(带回 Sig、最小化�
     $liveCsT13.Length -gt 0 -and $liveCsT13.Contains('"Sig"') -and $liveCsT13.Contains('IsIconic') -and
     $liveCsT13.Contains('SW_RESTORE') -and $liveCsT13.Contains('TryForeground') -and
     $liveCsT13.Contains('RealClick') -and $liveCsT13.Contains('ClickOnce')) ("Live.cs=" + $liveCsT13.Length + " 字符")
-# 刀⑰ 笔(c)-2 第 1 批 B1 换家(§11.276)：老形是 PS 侧 Get-Content -Raw 读整本 Cli.cs，再逐枚手拼
-# 'verb == "<名>"' 拿去 -notmatch —— 那两步(读文件＋正则判定)的家自此住核内 scan-source-patterns，
-# PS 侧只组参与按 Passed 记名。两处语义差逐格登记：
-#   ① PS -match 原生大小写不敏感、核侧敏感(RegexOptions.CultureInvariant)。分派链那行是 C# 字面量，
-#     老形会把「Verb == "x"」这种对不齐大小写的写法也算在位；改敏感后是收紧不是放松，现树逐枚现读全在位。
-#   ② 老形「Cli.cs 取不回来 ⇒ 空串 ⇒ 十三枚全红」是静默恒红；核侧输入闸对缺文件直接 throw(拒跑不是判红)，
-#     交不出数的两档从此分家——正是上面③那条在册规矩要的形。
+# 刀⑰ 笔(c)-2 第 1 批 B1 换家(§11.276)：老形是 PS 侧 Get-Content -Raw 读整本 Cli.cs，再逐枚手拼…（细节见该帧）
 $t13CliCs = Join-Path $PSScriptRoot 'panel-cs\Cli.cs'
 $t13Verbs = @('vision-ask-model', 'parse-vision-verdict', 'build-vision-prompt', 'resolve-vision-endpoint',
     'vision-click-point', 'shot-changed', 'ark-window-shot', 'ark-window-click', 'ark-desktop-state',
@@ -304,14 +261,7 @@ if (-not $rescueOnDisk) {
 }
 
 Write-Host "`n[t14] 点了没动怎么说、怎么早退(2026-09-25 一天里两次改口的教训都在这里)"
-# 09-25 06:00 那轮真凭据：MAA 每 4 秒往 splash 的 START 点一下、点到 exec_times=311，模板分始终 0.99，画面一动不动。当年第一版把原因写成
-# 「MAA 抢不到前台退化成 PostMessage，而端游不吃」，依据是「成功轮每小时 174 条 inject_input_event」——那是数错日志：2001 次注入全部来自
-# SwipeToTheLeft，7640 次 ClickSelf／719 次 ClickRect 一条注入都没有。所以注入只能说明「滑过基建没有」，绝不能当点击通道活没活的判据；
-# 早退改按「同一个子任务重试到第几次」判。
-# 11-08 刀㉓ 笔(b) 第三子批 第十刀：本段六枚行为格与两份输入块整批出仓，对面＝Processes.SelfTest.cs AsstGroup(asst/dead・asst/swipe・
-# asst/hint-dead・asst/empty)；同一份 269 次与 SwipeToTheLeft 真片段，整句等值把「通道退化／不吃 PostMessage／八成是」三串直接封死。
-# 探测那一路：桌面态/截图/点击真身在核内(Live.cs 三段＋GdWin.cs P/Invoke 名单)，PS 后端件随本批出仓。
-# 11-06 刀⑮ 笔(d)：下面两枚 GdWin.cs 钉提出护栏——它们量 tools\gdinterop\GdWin.cs 名单在场，与 lib\vision-ark.ps1 在不在不同轴。
+# 09-25 06:00 那轮真凭据：MAA 每 4 秒往 splash 的 START 点一下、点到 exec_times=311，模板分始终 0.99，画面一动不动。当年第一版把原因写成…（细节见该帧）
 $arkVisionFileOnDisk = Test-Path -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-ark.ps1')
 Check '端游视觉后端件与 Get-GdArkDesktopState 命令同一个事实(同在同不在，半迁移红)' (
     $arkVisionFileOnDisk -eq [bool](Get-Command Get-GdArkDesktopState -ErrorAction SilentlyContinue)) "件=$arkVisionFileOnDisk"
@@ -320,10 +270,7 @@ try { $gdWinCs = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\tools\gdi
 Check '桌面名走 OpenInputDesktop + UOI_NAME，用完关掉句柄(名单只在 tools\gdinterop\GdWin.cs 里)' (
     $gdWinCs.Length -gt 0 -and $gdWinCs -match 'OpenInputDesktop' -and $gdWinCs -match 'GetUserObjectInformationW' -and
     $gdWinCs -match 'CloseDesktop') ("GdWin.cs={0} 字符" -f $gdWinCs.Length)
-# 2026-11-08 刀㉑ 笔(c)：上面这枚格原还带一条合取「也不许内联回 PS 那份」，那是**哑的**——它咬的是
-#   lib\vision-ark.ps1 的全文，而那件已整件出仓，取数恒空串 ⇒ -notmatch 恒真(在册「空串 -match 假绿」那一形)。
-#   语义不跟着埋：另立一枚活格，现扫 lib\*.ps1 全体，谁内联 Add-Type 加 TypeDefinition 当场红；
-#   取数一本都没扫到也当场红，不许演成「没文件＝没污染」。全树现拍这根针只有本文件这一枚命中，lib 侧 0 枚。
+# 2026-11-08 刀㉑ 笔(c)：上面这枚格原还带一条合取「也不许内联回 PS 那份」，那是**哑的**——它咬的是…（细节见该帧）
 $libPs1Files = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot '..\lib') -Filter '*.ps1' -File)
 Check 'PS 侧 lib 那一层不许把 C# 内联回来(名单只住 tools\gdinterop，Add-Type -TypeDefinition 零命中)' (
     (@($libPs1Files).Count -ge 1) -and
@@ -351,16 +298,10 @@ Check '探测还能说清"谁占着前台"，并且读窗口自身状态(最小�
         $liveCsT13.Contains('TryForeground')) ('Live.cs=' + $liveCsT13.Length + " 字符 / Live.SelfTest.cs=" + $liveStT14.Length + ' 字符')
 
 Write-Host "`n[t15] MAA 自己把队列跑空了，别再傻等 22 分钟(2026-09-25 07:53 那轮现场暴露的)"
-# 09-25 07:53 那轮：asst.log 5 次点击全部落地，随后 StartUp@CloseAnno 连认 50 次认不出「锦枫映月」的 ×，6 条链路 0 完成，
-# 07:56:46 gui.log 打出「任务已完成，但出现错误！」＝MAA 队列已空。老代码只认「任务已全部完成」，这一种收尾要等到 asst.log 静默 22 分钟才反应。
-# 10-27 甲档第四刀刀②：本节原咬 lib\maa.ps1 壳内字面的六格随 Invoke-MaaRun 出仓退役；金样现由 --looptest 接守
-# (RunLoops.SelfTest.cs：「MAA 队列已跑空但只完成 0/2 条链路…外层会重试一次」族)。
+# 09-25 07:53 那轮：asst.log 5 次点击全部落地，随后 StartUp@CloseAnno 连认 50 次认不出「锦枫映月」的 ×，6 条链路 0 完成……（细节见该帧）
 
 Write-Host "`n[t16] 只问不点的诊断入口(2026-09-26 加强 AI 干预时加的，全程不联网、不起子进程)"
-# 10-28 第二十刀刀③：本节原咬 Add-GdRescueRecord 壳的九格随壳退役，整节改由三处接守——
-#   压平那形：--visiontest(Vision.SelfTest.cs:351/353，含 \r\n 那半)；读-改-写与缺文件不惊动 WARN：--selftest 第 19 节
-#     (version/updated/events 三格＋Keep 60 滑窗各一格，本刀补两枚)；名册与形状：第 30 节 H5(六格逐字符)/H6a/H6b，其余 20 档钉零账本。
-# 本节不再真写 state\rescue.json，Save-GdTestState 那对存/还原一并撤下(没有要还的盘了)。
+# 10-28 第二十刀刀③：本节原咬 Add-GdRescueRecord 壳的九格随壳退役，整节改由三处接守——…（细节见该帧）
 
 # tools\vision-ask.ps1 是"只问不点"的排查入口：配好 key 之后不用跑一轮日常，就能看到模型对着这张图怎么说。
 # 它的价值恰恰在于**不动手**，所以这里判的就是"它真的没有点击的手"。
