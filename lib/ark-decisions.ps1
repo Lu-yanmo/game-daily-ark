@@ -88,6 +88,5 @@ function Resolve-ArkPlan {
 # 判据(名单里有没有这一关)与"结论不落地"那三种无效形状全住在 C#(decide-ark-event-probe)，壳只管读盘写盘。
 # ⚠ 刀⑯ 笔(d)-1(2026-11-06)：读盘那一半(Get-GdArkEventProbe，核臂 read-decision-state＋PS 回落臂)本批出仓——
 #   判定层的 probe 那一枚由 Resolve-ArkPlan 经 read-decision-state 直答取齐(ReadProbe 三形归一 null 的口径在核侧)；
-#   这里只留路径一枚(门侧夹具写盘用)。
-# 键集与 Decisions.cs 那侧的 probe 入参一一对上：Date / EventKey / Stage / Entered / Evidence。
-function Get-GdArkEventProbePath { Join-Path $global:GD.State 'ark-event-probe.json' }
+#   这里原先只留路径一枚(门侧夹具写盘用)。⚠ 刀㉓ 笔(b) 第三子批第四刀(2026-11-08)：门侧夹具不再写盘(test-ark:121 史注自陈零消费者)，
+#   Get-GdArkEventProbePath 全树现拍除该注释外零活调用⇒真身出仓；probe 键集(Date/EventKey/Stage/Entered/Evidence)的家在 Decisions.cs 与 read-decision-state。
