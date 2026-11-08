@@ -340,12 +340,10 @@ Write-Host "`n[t13] 视觉兜底(全程不联网、不截图、不点任何东�
 $rescueOnDisk = Test-Path -LiteralPath (Join-Path $PSScriptRoot '..\lib\vision-rescue.ps1')
 Check '兜底内核件与 Get-GdVisionVerdictFromText 命令同一个事实(同在同不在，半迁移红)' (
     $rescueOnDisk -eq [bool](Get-Command Get-GdVisionVerdictFromText -ErrorAction SilentlyContinue)) "件=$rescueOnDisk"
-$visionCsT13 = ''
-try { $visionCsT13 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Vision.cs') -Raw -Encoding utf8 } catch { }
-Check '提示词那一份规则住在核侧(只回 JSON＋千分比＋clicks 最多 3 个按把握排＋只允许关掉弹窗那类＋默认档硬禁领取)' (
-    $visionCsT13.Length -gt 0 -and $visionCsT13.Contains('只输出一个 JSON') -and $visionCsT13.Contains('千分比') -and
-    $visionCsT13.Contains('clicks 最多 3 个') -and $visionCsT13.Contains('按你的把握从大到小排') -and
-    $visionCsT13.Contains('关闭/取消/暂不/跳过/知道了') -and $visionCsT13.Contains('绝对不要给')) ("Vision.cs=" + $visionCsT13.Length + " 字符")
+# 2026-11-08 刀㉕ 笔(a)：原先这里有一格量 Vision.cs 源文本的六串(只回 JSON／千分比／clicks 最多 3 个／按把握排／
+#   关闭类按钮／绝对不要给)。判据不删只换家 ⇒ 六串全在 --visiontest 的 PromptGroup 里逐格重跑(只回 JSON＋千分比
+#   一格、规则 2 整行逐字一格、规则 3 两格)，其中「按把握排」「关闭类按钮」两串本批补成整行逐字才摘。按刀③
+#   「把真调换成钩子格还在的形钉等于给壳续命」，源文本形钉直接删格，不换取法重写。
 $liveCsT13 = ''
 try { $liveCsT13 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Live.cs') -Raw -Encoding utf8 } catch { }
 Check '端游截图与点击那半的规矩住在核侧(带回 Sig、最小化先 SW_RESTORE、抢不到前台才退 PostMessage)' (
@@ -370,14 +368,9 @@ foreach ($t13v in $t13Verbs) {
     if (-not [bool]$t13Scan.Passed) { $t13Miss += $t13v }
 }
 Check '兜底那一路的十三枚出口全在核内分派链上(三件出仓后这是唯一通路，缺哪枚点名哪枚)' ($t13Miss.Count -eq 0) ($t13Miss -join ',')
-$visionStT13 = ''
-try { $visionStT13 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Vision.SelfTest.cs') -Raw -Encoding utf8 } catch { }
-Check '那二十二枚的判语在 --visiontest 里逐族重跑(抠件／点位上限／越界拒／端点补全／桌面态／画面签名六族同名在场)' (
-    $visionStT13.Length -gt 0 -and $visionStT13.Contains('裹了 markdown 代码块和一句话也能抠出 JSON') -and
-    $visionStT13.Contains('Clicks 只留整数点位、最多 3 个') -and
-    $visionStT13.Contains('坐标超出 0-1000 视为胡说，拒掉') -and
-    $visionStT13.Contains('基础地址以 /v1 结尾会补成 /chat/completions') -and
-    $visionStT13.Contains('桌面名读不到') -and $visionStT13.Contains('两次画面格数不同')) ("Vision.SelfTest.cs=" + $visionStT13.Length + " 字符")
+# 2026-11-08 刀㉕ 笔(a)：原先这里有一格量 Vision.SelfTest.cs 的六枚格名在场(钩子格还在的形钉)。按刀③ 直接删格：
+#   那六族判语每次跑 --visiontest 都被真跑一遍(抠件／点位上限／越界拒／端点补全／桌面态／画面签名)，钉文本不如钉结果；
+#   且钉文本这格本身就是「钩子格还在＝覆盖还在」的假安心。
 if (-not $rescueOnDisk) {
     Check 'PS 侧那六枚兜底真身没在现树复活(问价／解析／提示词／端点／换算／截图签名)' (
         -not (Get-Command Get-GdVisionVerdictFromText -ErrorAction SilentlyContinue) -and
@@ -386,11 +379,8 @@ if (-not $rescueOnDisk) {
         -not (Get-Command Get-GdRescueClickPoint -ErrorAction SilentlyContinue) -and
         -not (Get-Command Invoke-GdVisionRaw -ErrorAction SilentlyContinue) -and
         -not (Get-Command Save-GdWindowShot -ErrorAction SilentlyContinue))
-    $liveStT13 = ''
-    try { $liveStT13 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Live.SelfTest.cs') -Raw -Encoding utf8 } catch { }
-    Check '问价那一层"拼处境＋截 200 字"两条住在核侧(截断在 Live.cs，逐字金样在 --livetest 那两格)' (
-        $liveCsT13.Contains('自动化这边的处境') -and $liveCsT13.Contains('Substring(0, 200)') -and
-        $liveStT13.Contains('自动化这边的处境') -and $liveStT13.Length -gt 0) ("Live.SelfTest.cs=" + $liveStT13.Length + " 字符")
+    # 2026-11-08 刀㉕ 笔(a)：原先这里有一格量 Live.cs 与 Live.SelfTest.cs 的源文本(自动化这边的处境／Substring(0, 200))。
+    #   判据不删只换家 ⇒ Live.SelfTest.cs 268/273 两格按行为重跑(拼处境整句等值＋200 字截断金样)，比源文本 -and 强一档。
 }
 
 Write-Host "`n[t14] 点了没动怎么说、怎么早退(2026-09-25 一天里两次改口的教训都在这里)"
