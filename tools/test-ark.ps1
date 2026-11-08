@@ -52,45 +52,21 @@ if (-not (Test-GdPathReady $S.paths.maaDir)) {
 }
 
 Write-Host "`n[t2] 关卡表 / 校验"
+# 2026-11-08 刀㉓ 笔(b) 第三子批 第十一刀：本节原有三枚行为格(多关卡拆分+去空格／理智合计／未知关卡能抓出)整批出仓，
+#   留「关卡表非空」这一枚——它量的是本机 MAA resource\stages.json 的现况读数，不是 verb 答法，不属本族。
+#   对面＝Decisions.SelfTest.cs 的 check-stages 四枚(混分隔与去重／理智合计／未知关卡点名／单关卡话术)，
+#   判据从 -match 收到逐字段等值；三枚 verB 直答格在这里已无独立轴可钉。
 $table = Get-GdStageTable -S $S
 Check '关卡表非空' ($table.Count -gt 300) "$($table.Count) 条"
-$chk = Invoke-GdCli -Verb 'check-stages' -Body ([pscustomobject]@{ table = $table; stageText = 'CE-5, LS-5' })
-Check '多关卡拆分+去空格' ($chk.Stages.Count -eq 2 -and $chk.Bad.Count -eq 0) $chk.Note
-Check '理智合计' ($chk.Cost -eq ([int]$table['CE-5'] + [int]$table['LS-5'])) "$($chk.Cost)"
-Check '未知关卡能抓出' ((Invoke-GdCli -Verb 'check-stages' -Body ([pscustomobject]@{ table = $table; stageText = 'XX-9' })).Bad.Count -eq 1)
 
 Write-Host "`n[t3] MAA 队列改写(仅预览，不落盘)"
-$cfgPath = Join-GdPath $S.paths.maaDir @($S.paths.maaConfig)
-$hashBefore = (Get-FileHash -LiteralPath $cfgPath -Algorithm SHA256).Hash
-$base = @{ Source = 'test'; EventKey = $null; EventTip = $null; StageHint = $null }
-function FightFlags($preview) {
-    $out = @{}
-    foreach ($q in @((Read-GdJson -Path $cfgPath).Configurations.Default.TaskQueue)) {
-        if ($q.TaskType -eq 'Fight') { $out[[string]$q.Name] = [bool]$q.IsEnable }
-    }
-    return $out
-}
-
-$r1 = Invoke-GdCli -Verb 'apply-maa-daily-config' -Body ([pscustomobject]@{ settings = $S; decision = ($base + @{ Mode = 'idle'; Stage = 'CE-5,LS-5'; ClearSanity = $true }) })
-$disk = FightFlags $null
-$wantsOn = (@($r1.Changes | Where-Object { $_ -match '剩余理智 → IsEnable=True' }).Count -gt 0)
-Check 'idle: 剩余理智最终会被启用' ([bool]$disk[[string]$S.ark.finishAllSanityWith] -or $wantsOn) "现状=$([bool]$disk[[string]$S.ark.finishAllSanityWith]) 本次改写=$wantsOn"
-Check 'idle: 期望链路含 Fight' ('Fight' -in $r1.ExpectedChains) ($r1.ExpectedChains -join ',')
-Check 'idle: 理智计划写入' (@($r1.Changes | Where-Object { $_ -match 'StagePlan = CE-5,LS-5' }).Count -gt 0 -or $disk.Count -gt 0) ($r1.Changes -join ' | ')
-$keepOk = $true
-foreach ($k in @($S.ark.keepQueuesEnabled)) { if ("$k" -notin $r1.ExpectedChains) { $keepOk = $false } }
-Check 'idle: 日常链路都在启用集' $keepOk ($r1.ExpectedChains -join ',')
-Check 'idle: 肉鸽/生息演算不在启用集' (@($S.ark.disableQueues | Where-Object { $_ -in $r1.ExpectedChains }).Count -eq 0)
-Check '预览不落盘' ((Get-FileHash -LiteralPath $cfgPath -Algorithm SHA256).Hash -eq $hashBefore)
-
-$r2 = Invoke-GdCli -Verb 'apply-maa-daily-config' -Body ([pscustomobject]@{ settings = $S; decision = ($base + @{ Mode = 'event-pending'; Stage = 'SR-8'; ClearSanity = $false }) })
-Check '不烧理智的形状: 不写 Fight' ('Fight' -notin $r2.ExpectedChains) ($r2.ExpectedChains -join ',')
-
-$r3 = Invoke-GdCli -Verb 'apply-maa-daily-config' -Body ([pscustomobject]@{ settings = $S; decision = ($base + @{ Mode = 'event'; Stage = 'SR-8'; ClearSanity = $true }) })
-Check 'event 档: 刷活动关' ('Fight' -in $r3.ExpectedChains -and (@($r3.Changes | Where-Object { $_ -match 'StagePlan = SR-8' }).Count -gt 0))
-$r4 = $null
-try { Invoke-GdCli -Verb 'apply-maa-daily-config' -Body ([pscustomobject]@{ settings = $S; decision = ($base + @{ Mode = 'idle'; Stage = 'NOT-A-STAGE'; ClearSanity = $true }) }) | Out-Null } catch { $r4 = $_.Exception.Message }
-Check '坏关卡代号会被拦住' ($r4 -and $r4 -match 'NOT-A-STAGE')
+# 2026-11-08 刀㉓ 笔(b) 第三子批 第十一刀：本节九枚 apply-maa-daily-config 行为格(idle 剩余理智启用／期望链路含 Fight／
+#   理智计划写入／日常链路都在启用集／肉鸽生息不在启用集／预览不落盘／不烧理智的形状／event 档刷活动关／坏关卡代号被拦住)
+#   连同 $cfgPath・$hashBefore・$base・FightFlags 与 $r1..$r4 五块整批出仓。对面＝Round.SelfTest.cs 第 28 节那五枚
+#   (keep/turnOff 按任务类型拦下・预览 SHA-256 前后相同且 Changes 非空・event-pending 不烧理智・event 档写 SR-8・
+#   长草坏关卡整句等值)；idle 那三根轴(剩余理智启用／含 Fight／StagePlan 写入)本就在同节「真写盘」格内，不另立。
+#   证牙：本批四发 mutation 现拍(Processes.cs 两发＋Chain.cs:1613 一发)，逐发 BUILD_RC=0、红行点名、
+#   字节还原 RESTORE-SHA-EQ=True、基线 258/258。
 
 Write-Host "`n[t5] 方舟判定链路(会联网拉一次活动接口)"
 # ---- 刀⑯ 收官批 笔(b)(2026-11-06)：Get-ArkEvent 出仓，取数半段改问核(换答方不换问法) ----
