@@ -422,21 +422,19 @@ Check '探测还能说清"谁占着前台"，并且读窗口自身状态(最小�
     $gdWinCs.Length -gt 0 -and $gdWinCs -match 'GetWindowThreadProcessId' -and $gdWinCs -match 'IsWindowVisible' -and
     $gdWinCs -match 'WindowRectText')
 # 2026-11-08 刀㉑ 笔(a)：上面那行"件在才跑得动的真调格"臂恒不执行(lib\vision-ark.ps1 已整件退役、Get-GdArkDesktopState
-#   也不在现树——同事实那格在上面钉着)，死臂随批摘五枚格；下面三枚(没复活＋桌面态四格改由 --visiontest 金样接住＋
-#   抢前台只动窗口状态)自此是唯一形。摘的五枚逐枚点名见提交正文。
+#   也不在现树——同事实那格在上面钉着)，死臂随批摘五枚格；下面两枚(没复活＋抢前台只动窗口状态)自此是唯一形
+#   (「桌面态四格改由 --visiontest 金样接住」那枚于 2026-11-08 刀㉕ 笔(b) 摘除，见下注)。摘格逐枚点名见提交正文。
     Check 'PS 端游后端那三枚没在现树复活(找窗口／拍窗口／点窗口)' (
         -not (Get-Command Get-GdArkWindow -ErrorAction SilentlyContinue) -and
         -not (Get-Command Save-GdWindowShot -ErrorAction SilentlyContinue) -and
         -not (Get-Command Send-GdArkClick -ErrorAction SilentlyContinue))
-    $visionStT14 = ''
-    try { $visionStT14 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Vision.SelfTest.cs') -Raw -Encoding utf8 } catch { }
+    # 2026-11-08 刀㉕ 笔(b)：原「桌面态那四格改由 --visiontest 那族金样接住」的源文本钩子格随批摘除——
+    #   四串判据不删只换家，真身逐格在 panel-cs\Vision.SelfTest.cs 里真跑(桌面名读不到→无法判断／
+    #   未锁屏 + 没窗口 + 有光标／屏保-登录桌面 + 前台被人占着两句都说清／最小化+不可见+矩形三样并排)；
+    #   钉文本不如钉结果(刀③)，源文本格与钩子格同一处置。$liveStT14 留着：下面那枚问的是 Live.SelfTest.cs
+    #   的话术，--livetest 没有「最小化先 SW_RESTORE」的直格，轴不同不跟着批走。
     $liveStT14 = ''
     try { $liveStT14 = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'panel-cs\Live.SelfTest.cs') -Raw -Encoding utf8 } catch { }
-    Check '桌面态那四格改由 --visiontest 那族金样接住(读不到→无法判断／未锁屏没窗口有光标／屏保两句都说清／最小化不可见矩形并排)' (
-        $visionStT14.Length -gt 0 -and $visionStT14.Contains('桌面名读不到') -and
-        $visionStT14.Contains('未锁屏 + 没窗口 + 有光标') -and
-        $visionStT14.Contains('屏保/登录桌面 + 前台被人占着') -and
-        $visionStT14.Contains('最小化+不可见+矩形三样并排')) ('Vision.SelfTest.cs=' + $visionStT14.Length + ' 字符')
     # 11-06 刀⑮ 笔(d)-2 复跑红一次照登：首拍把 TryForeground 去问 Live.SelfTest.cs(现读 0 处)，而它的真身在
     # Live.cs(现读 2 处)——判语句自己写的是「Live.cs 走 TryForeground」，取件取了另一本＝跨轴。金样话术那句确实
     # 住在 SelfTest(现读 1 处)，所以两串各归各家：话术问 SelfTest、窗口调用问 Live.cs，取证轴两本都印出来。
