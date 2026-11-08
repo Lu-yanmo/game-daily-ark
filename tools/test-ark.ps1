@@ -331,26 +331,11 @@ foreach ($arkCut9Fn in @('Invoke-GdTakeover', 'Get-GdWindowByTitle', 'Get-GdMaaF
 Check '刀⑨ 四枚死真身的定义不在现树 PS 侧(common 与 maa 两件按名册逐枚现扫；回潮＝零调用尺白跑，判据只住核内与 Chain.cs)' ($arkCut9Bad.Count -eq 0) ($arkCut9Bad -join ',')
 
 Write-Host "`n[t12] asst.log 停滞线索(gui.log 静默时唯一看得见的东西)"
-# 2026-09-24 18:00 那轮：gui.log 22 分钟一个字没有，asst.log 里 StartUp@GameStart 的 exec_times 从 1 涨到 316。
-# 断言用的是当晚日志的真实片段(去掉无关字段)，这样 MAA 改了行格式会立刻在这里红，而不是又在当晚才发现。
-$asstExcerpt = @'
-[2026-09-24 18:23:26.192][INF][Px29472][Tx36949] {"class":"asst::ProcessTask","cur_task":"StartUp@GameStart","details":{"cur_retry":0,"retry_times":50,"to_be_recognized":["StartUp@GameStart"]},"taskchain":"StartUp","taskid":0}
-[2026-09-24 18:23:26.320][INF][Px29472][Tx36949] Assistant::append_callback | SubTaskStart {"class":"asst::ProcessTask","details":{"action":"ClickSelf","algorithm":"MatchTemplate","exec_times":316,"max_times":2147483647,"result":{"rect":[611,652,58,58],"score":0.991275,"template":"GameStart.png"},"task":"GameStart"},"subtask":"ProcessTask","taskchain":"StartUp","taskid":0}
-[2026-09-24 18:23:26.320][TRC][Px29472][Tx36949] Win32Controller click: (629, 701)
-'@
-$asstHint = (Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = $asstExcerpt })).Hint
-Check '能点名卡住的子任务 + 重复次数 + 最后点击位置' (
-    $asstHint -match 'StartUp@GameStart' -and $asstHint -match '316' -and $asstHint -match '629,701') $asstHint
-Check '认不出任务时不给线索(不编造)' (((Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = '[INF] asst::Controller::connect 123' })).Hint) -eq '')
-Check '空文本不炸(对面空文本自证：不起判定进程的那半已随壳出仓，这里量的是 verb 对空白的答法)' (((Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = '' })).Hint) -eq '')
-# 只点了一两次 = 正常推进，不该跟着喊"被挡住了"(那条结论只在反复点同一处时才成立)
-$justOne = (Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = (@'
-{"cur_task":"RecruitBegin","details":{"cur_retry":0,"retry_times":50}}
-SubTaskStart {"details":{"exec_times":1,"task":"RecruitBegin"}}
-Win32Controller click: (400, 300)
-'@) })).Hint
-Check '刚开始的子任务不会被说成"反复点击而界面不动"' (
-    $justOne -match 'RecruitBegin' -and $justOne -notmatch '反复点击') $justOne
+# 2026-11-08 刀㉓ 笔(b) 第三子批 第十刀：本节四枚「verb 直答」行为格(能点名卡住的子任务／认不出就不编造／空文本不炸／
+#   刚开始不算反复点击)连同 $asstExcerpt 与 $justOne 两份输入块整批出仓。对面＝Processes.SelfTest.cs 的 AsstGroup
+#   (asst/hint-excerpt・asst/hint-none・asst/hint-empty・asst/hint-justOne)：同一份 09-24 18:23 真日志原文与同一份
+#   RecruitBegin 片段；判据从 -match 收紧成整句等值(逐字钉死文案)。留格＝settings 缺 maaAsstLog 的默认路径与本机
+#   asst.log 现况读数，二者量的不是 verb 答法，不属本族。
 # 老配置没这个键也要能跑：路径有默认值，且判定不依赖它
 # 复制用 Convert-GdMapToHashtable，不要写成 "$S" + 块名 + ".PSObject.Properties" 那种属性展开：
 # 导出闸门 Test-GdTemplateCoversCode 是按 $S.<块>.<键> 的字面量扫代码的(连注释一起扫)，
@@ -439,37 +424,11 @@ Write-Host "`n[t14] 点了没动怎么说、怎么早退(2026-09-25 一天里两
 # 全部 2001 次注入都来自同一个子任务 SwipeToTheLeft(基建向左滑)，而 7640 次 ClickSelf / 719 次 ClickRect
 # 一条注入都没有 —— 点击在成功轮里也一直是配置里那个发消息方式。所以：注入只能说明"滑过基建没有"，
 # 绝不能拿来当"点击通道活没活"的判据；早退改按"同一个子任务重试到第几次"判。
-$asstDead = @'
-{"cur_task":"StartUp@GameStart","details":{"cur_retry":0,"retry_times":50}}
-SubTaskStart {"details":{"exec_times":269,"task":"GameStart"}}
-Win32Controller click: (643, 666)
-Win32Controller click: (647, 670)
-Win32Controller click: (638, 663)
-'@
-$stDead = Invoke-GdCli -Verb 'parse-asst-state' -Body ([pscustomobject]@{ text = $asstDead })
-Check '状态里四个数都数得到(任务/重试到第几/点击行/注入行)' (
-    $stDead.Task -eq 'StartUp@GameStart' -and $stDead.Exec -eq 269 -and $stDead.Clicks -eq 3 -and $stDead.Inject -eq 0) $(
-    "$($stDead.Task) exec=$($stDead.Exec) clicks=$($stDead.Clicks) inject=$($stDead.Inject)")
-$asstSwipe = @'
-{"cur_task":"InfrastTimePhase","details":{"cur_retry":0,"retry_times":5}}
-SubTaskStart {"details":{"exec_times":1,"action":"Swipe","task":"SwipeToTheLeft"}}
-asst::Win32Controller::inject_input_event | enter
-asst::Win32Controller::inject_input_event | leave, 14 ms
-asst::Win32Controller::inject_input_event | enter
-'@
-$stSwipe = Invoke-GdCli -Verb 'parse-asst-state' -Body ([pscustomobject]@{ text = $asstSwipe })
-Check '注入行只在滑动类子任务里出现，数得到就不等于"点击通道活着"' (
-    $stSwipe.Task -eq 'InfrastTimePhase' -and $stSwipe.Inject -eq 2 -and $stSwipe.Clicks -eq 0) $(
-    "task=$($stSwipe.Task) inject=$($stSwipe.Inject) clicks=$($stSwipe.Clicks)")
-$hintDead = (Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = $asstDead })).Hint
-Check '点了没动时两种可能都留着，不再把某个原因写成定论' (
-    $hintDead -match '窗口挡' -and $hintDead -match '前台|会话') $hintDead
-Check '结论里不出现"通道退化/不吃 PostMessage"那句(它已被证伪)' (
-    $hintDead -notmatch '通道退化' -and $hintDead -notmatch '不吃 PostMessage' -and $hintDead -notmatch '八成是') $hintDead
-Check '任务名/重试次数/最后点击位置三个字段照常带上' (
-    $hintDead -match 'StartUp@GameStart' -and $hintDead -match '269' -and $hintDead -match '638,663')
-Check '空片段不给状态、也不给结论' (
-    (-not (Invoke-GdCli -Verb 'parse-asst-state' -Body ([pscustomobject]@{ text = '' })).Task) -and (((Invoke-GdCli -Verb 'parse-asst-hint' -Body ([pscustomobject]@{ text = '' })).Hint) -eq ''))
+# 2026-11-08 刀㉓ 笔(b) 第三子批 第十刀：本段六枚「点了没动怎么说」行为格(四个数数得到／注入行只顾滑动／两种可能都留着／
+#   不写已被证伪那句／任务名与重试次数与最后点击位置三个字段照常带上／空片段不给结论)连同 $asstDead 与 $asstSwipe
+#   两份输入块整批出仓。对面＝Processes.SelfTest.cs 的 AsstGroup(asst/dead・asst/swipe・asst/hint-dead・asst/empty)：
+#   同一份 269 次与 SwipeToTheLeft 真片段，整句等值比 -match 强一档；「通道退化／不吃 PostMessage／八成是」三串
+#   由整句等值直接封死，不再靠"整句里恰好没写"蒙混。
 # 探测那一路：桌面态/截图/点击的真身在核内(Live.cs 那三段＋GdWin.cs 那份 P/Invoke 名单)，PS 后端件随本批出仓。
 # 2026-11-06 刀⑮ 笔(d)：下面两枚 GdWin.cs 钉**提出护栏**——它们量的是 tools\gdinterop\GdWin.cs 的名单在场，
 # 与 lib\vision-ark.ps1 在不在**不同轴**；留在护栏内＝件一摘这两枚跟着断电(在册那条"桌子搬了家而九格靠空串假绿")
