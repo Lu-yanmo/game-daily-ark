@@ -1,0 +1,12 @@
+{
+  "id": "ark",
+  "name": "明日方舟（端游 + MAA）",
+  "version": "1.5.0",
+  "files": [
+    "lib/maa.ps1",
+    "lib/ark-decisions.ps1",
+    "lib/ark-module.ps1",
+    "tools/test-ark.ps1"
+  ],
+  "settings": "config/settings.example.json"
+}
